@@ -13,11 +13,11 @@ type Session struct {
 }
 
 type AgentConfig struct {
-	ID            string
-	Name          string
-	Model         string
-	SystemPrompt  string
-	Temperature   float64
+	ID           string
+	Name         string
+	Model        string
+	SystemPrompt string
+	Temperature  float64
 }
 
 type AppSettings struct {

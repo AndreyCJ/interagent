@@ -7,8 +7,8 @@ import (
 )
 
 type mockLLM struct {
-	response string
-	err      error
+	response  string
+	err       error
 	cancelled bool
 }
 

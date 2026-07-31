@@ -1,6 +1,5 @@
-import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { describe, expect, it } from 'vitest'
 import MicButton from '../MicButton.vue'
 import { useAudio } from '../useAudio'
 
@@ -9,6 +8,7 @@ describe('MicButton', () => {
     const wrapper = mount(MicButton, {
       props: { listening: false },
     })
+
     expect(wrapper.text()).toContain('Mic')
     expect(wrapper.classes()).not.toContain('active')
   })
@@ -17,6 +17,7 @@ describe('MicButton', () => {
     const wrapper = mount(MicButton, {
       props: { listening: true },
     })
+
     expect(wrapper.text()).toContain('Stop')
     expect(wrapper.classes()).toContain('active')
   })

@@ -14,8 +14,8 @@ type mockAudioInput struct {
 	setDevice func(id string) error
 }
 
-func (m *mockAudioInput) Start() error          { return m.startErr }
-func (m *mockAudioInput) Stop() error           { return m.stopErr }
+func (m *mockAudioInput) Start() error { return m.startErr }
+func (m *mockAudioInput) Stop() error  { return m.stopErr }
 func (m *mockAudioInput) Devices() ([]port.AudioDevice, error) {
 	return m.devices, nil
 }

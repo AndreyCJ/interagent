@@ -18,12 +18,12 @@ func newMockAgentStore() *mockAgentStore {
 	}
 }
 
-func (m *mockAgentStore) CreateSession(s port.Session) error   { return nil }
+func (m *mockAgentStore) CreateSession(s port.Session) error { return nil }
 func (m *mockAgentStore) GetSession(id string) (port.Session, error) {
 	return port.Session{}, nil
 }
-func (m *mockAgentStore) UpdateSession(s port.Session) error   { return nil }
-func (m *mockAgentStore) DeleteSession(id string) error        { return nil }
+func (m *mockAgentStore) UpdateSession(s port.Session) error { return nil }
+func (m *mockAgentStore) DeleteSession(id string) error      { return nil }
 
 func (m *mockAgentStore) GetAgents() ([]port.AgentConfig, error) {
 	var result []port.AgentConfig
@@ -43,8 +43,8 @@ func (m *mockAgentStore) DeleteAgent(id string) error {
 	return nil
 }
 
-func (m *mockAgentStore) GetSettings() (port.AppSettings, error)     { return port.AppSettings{}, nil }
-func (m *mockAgentStore) SaveSettings(s port.AppSettings) error      { return nil }
+func (m *mockAgentStore) GetSettings() (port.AppSettings, error) { return port.AppSettings{}, nil }
+func (m *mockAgentStore) SaveSettings(s port.AppSettings) error  { return nil }
 
 func TestAgent_List_ReturnsAllAgents(t *testing.T) {
 	store := newMockAgentStore()

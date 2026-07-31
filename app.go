@@ -7,23 +7,23 @@ import (
 )
 
 type App struct {
-	ctx       context.Context
-	session   usecase.Session
-	audio     usecase.Audio
+	ctx        context.Context
+	session    usecase.Session
+	audio      usecase.Audio
 	screenshot usecase.Screenshot
-	llm       usecase.LLM
-	agent     usecase.Agent
-	settings  usecase.Settings
+	llm        usecase.LLM
+	agent      usecase.Agent
+	settings   usecase.Settings
 }
 
 func NewApp() *App {
 	return &App{
-		session:   *usecase.NewSession(nil),
-		audio:     *usecase.NewAudio(nil, nil),
+		session:    *usecase.NewSession(nil),
+		audio:      *usecase.NewAudio(nil, nil),
 		screenshot: *usecase.NewScreenshot(nil, nil),
-		llm:       *usecase.NewLLM(nil),
-		agent:     *usecase.NewAgent(nil),
-		settings:  *usecase.NewSettings(nil),
+		llm:        *usecase.NewLLM(nil),
+		agent:      *usecase.NewAgent(nil),
+		settings:   *usecase.NewSettings(nil),
 	}
 }
 

@@ -9,4 +9,3 @@ export default defineConfig({
     include: ['src/features/**/tests/*.test.ts'],
   },
 })
-

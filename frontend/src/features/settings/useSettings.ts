@@ -5,9 +5,7 @@ export function useSettings() {
   const settings = ref<AppSettings | null>(null)
   const error = ref<string | null>(null)
 
-  async function load() {
-
-  }
+  async function load() {}
 
   async function save(s: AppSettings) {
     settings.value = s
