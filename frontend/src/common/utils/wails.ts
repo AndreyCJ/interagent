@@ -1,4 +1,4 @@
-import type { Session, AgentConfig, AppSettings, Shortcut, AudioDevice } from '../types'
+import type { AgentConfig, AppSettings, AudioDevice, Session, Shortcut } from '../types/api.types'
 
 // Session
 export declare function NewSession(): Promise<Session>

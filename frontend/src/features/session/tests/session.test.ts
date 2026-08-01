@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { describe, expect, it } from 'vitest'
+import type { Message } from '../../../common/types/api.types.js'
 import ChatHistory from '../ChatHistory.vue'
 import MessageItem from '../MessageItem.vue'
-import type { Message } from '../../../types'
 
 describe('MessageItem', () => {
   it('renders message text and role', () => {

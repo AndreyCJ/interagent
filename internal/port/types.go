@@ -15,7 +15,10 @@ type Session struct {
 type AgentConfig struct {
 	ID           string
 	Name         string
+	Provider     string
 	Model        string
+	BaseURL      string
+	APIKey       string
 	SystemPrompt string
 	Temperature  float64
 }

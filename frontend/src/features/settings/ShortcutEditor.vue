@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Shortcut } from '../../types'
+import type { Shortcut } from '../../common/types/api.types'
 
 defineProps<{
   shortcuts: Shortcut[]

@@ -13,7 +13,10 @@ export interface Session {
 export interface AgentConfig {
   id: string
   name: string
+  provider: 'local' | 'openai-compatible'
   model: string
+  baseUrl: string
+  apiKey: string
   systemPrompt: string
   temperature: number
 }

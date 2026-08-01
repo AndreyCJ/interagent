@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { AppSettings } from '../../types'
+import type { AppSettings } from '../../common/types/api.types'
 
 export function useSettings() {
   const settings = ref<AppSettings | null>(null)

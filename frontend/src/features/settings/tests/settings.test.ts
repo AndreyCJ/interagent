@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
-import SettingsPanel from '../SettingsPanel.vue'
+import { describe, expect, it } from 'vitest'
+import type { AgentConfig, Shortcut } from '../../../common/types/api.types.js'
 import AgentManager from '../AgentManager.vue'
+import SettingsPanel from '../SettingsPanel.vue'
 import ShortcutEditor from '../ShortcutEditor.vue'
 import { useSettings } from '../useSettings'
-import type { AgentConfig, Shortcut } from '../../../types'
 
 describe('SettingsPanel', () => {
   it('renders slot content', () => {
@@ -18,7 +18,16 @@ describe('SettingsPanel', () => {
 describe('AgentManager', () => {
   it('renders list of agents', () => {
     const agents: AgentConfig[] = [
-      { id: '1', name: 'Default', model: 'llama3', systemPrompt: '', temperature: 0.7 },
+      {
+        id: '1',
+        name: 'Default',
+        provider: 'local',
+        model: 'llama3',
+        baseUrl: '',
+        apiKey: '',
+        systemPrompt: '',
+        temperature: 0.7,
+      },
     ]
     const wrapper = mount(AgentManager, {
       props: { agents },

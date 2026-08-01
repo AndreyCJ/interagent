@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AgentConfig } from '../../types'
+import type { AgentConfig } from '../../common/types/api.types'
 
 defineProps<{
   agents: AgentConfig[]
