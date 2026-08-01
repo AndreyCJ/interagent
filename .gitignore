@@ -1,4 +1,5 @@
 build/bin
 node_modules
-frontend/dist
+frontend/src/app/dist
+frontend/.eslintcache
 .DS_Store
