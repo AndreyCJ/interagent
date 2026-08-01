@@ -1,27 +1,35 @@
 package usecase
 
 import (
-	"errors"
-
 	"interagent/internal/port"
 )
 
 type Settings struct {
-	store port.Storage
+	store port.SettingsStorage
 }
 
-func NewSettings(store port.Storage) *Settings {
+func NewSettings(store port.SettingsStorage) *Settings {
 	return &Settings{store: store}
 }
 
 func (s *Settings) Get() (port.AppSettings, error) {
-	return port.AppSettings{}, errors.New("not implemented")
+	return s.store.GetSettings()
 }
 
 func (s *Settings) Save(cfg port.AppSettings) error {
-	return errors.New("not implemented")
+	return s.store.SaveSettings(cfg)
 }
 
 func (s *Settings) UpdateShortcut(id string, keys []string) error {
-	return errors.New("not implemented")
+	settings, err := s.store.GetSettings()
+	if err != nil {
+		return err
+	}
+	for i := range settings.Shortcuts {
+		if settings.Shortcuts[i].ID == id {
+			settings.Shortcuts[i].Keys = keys
+			return s.store.SaveSettings(settings)
+		}
+	}
+	return nil
 }

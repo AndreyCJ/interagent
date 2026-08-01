@@ -1,14 +1,13 @@
 package usecase
 
 import (
-	"errors"
-
 	"interagent/internal/port"
 )
 
 type Audio struct {
-	input port.AudioInput
-	stt   port.STT
+	input     port.AudioInput
+	stt       port.STT
+	listening bool
 }
 
 func NewAudio(input port.AudioInput, stt port.STT) *Audio {
@@ -16,21 +15,29 @@ func NewAudio(input port.AudioInput, stt port.STT) *Audio {
 }
 
 func (a *Audio) StartListening() error {
-	return errors.New("not implemented")
+	if err := a.input.Start(); err != nil {
+		return err
+	}
+	a.listening = true
+	return nil
 }
 
 func (a *Audio) StopListening() error {
-	return errors.New("not implemented")
+	if err := a.input.Stop(); err != nil {
+		return err
+	}
+	a.listening = false
+	return nil
 }
 
 func (a *Audio) IsListening() bool {
-	return false
+	return a.listening
 }
 
 func (a *Audio) GetDevices() ([]port.AudioDevice, error) {
-	return nil, errors.New("not implemented")
+	return a.input.Devices()
 }
 
 func (a *Audio) SetDevice(id string) error {
-	return errors.New("not implemented")
+	return a.input.SetDevice(id)
 }

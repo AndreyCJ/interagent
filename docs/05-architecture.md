@@ -53,17 +53,19 @@
 
 ### Порты (интерфейсы)
 
-| Интерфейс       | Методы                                     | Где определён                  |
-| --------------- | ------------------------------------------ | ------------------------------ |
-| `AudioInput`    | Start, Stop, Devices, SetDevice            | `internal/port/audio.go`       |
-| `STT`           | Transcribe(audioData) → (text, confidence) | `internal/port/audio.go`       |
-| `ScreenCapture` | CaptureFull, CaptureRegion                 | `internal/port/screenshot.go`  |
-| `OCR`           | ExtractText(image) → string                | `internal/port/screenshot.go`  |
-| `LLM`           | Complete(input, history) → string, Cancel  | `internal/port/llm.go`         |
-| `Storage`       | CRUD для Session, Agents, Settings         | `internal/port/storage.go`     |
-| `Overlay`       | Show, Hide, Toggle, SetMode, GetMode       | `internal/port/overlay.go`     |
-| `Hotkeys`       | Register, Unregister                       | `internal/port/hotkeys.go`     |
-| `Permissions`   | Status, Request, OpenSettings              | `internal/port/permissions.go` |
+| Интерфейс         | Методы                                                  | Где определён                  |
+| ----------------- | ------------------------------------------------------- | ------------------------------ |
+| `AudioInput`      | Start, Stop, Devices, SetDevice                         | `internal/port/audio.go`       |
+| `STT`             | Transcribe(audioData) → (text, confidence)              | `internal/port/audio.go`       |
+| `ScreenCapture`   | CaptureFull, CaptureRegion                              | `internal/port/screenshot.go`  |
+| `OCR`             | ExtractText(image) → string                             | `internal/port/screenshot.go`  |
+| `LLM`             | Complete(input, history) → string, Cancel               | `internal/port/llm.go`         |
+| `SessionStorage`  | CreateSession, GetSession, UpdateSession, DeleteSession | `internal/port/storage.go`     |
+| `AgentStorage`    | GetAgents, SaveAgent, DeleteAgent                       | `internal/port/storage.go`     |
+| `SettingsStorage` | GetSettings, SaveSettings                               | `internal/port/storage.go`     |
+| `Overlay`         | Show, Hide, Toggle, SetMode, GetMode                    | `internal/port/overlay.go`     |
+| `Hotkeys`         | Register, Unregister                                    | `internal/port/hotkeys.go`     |
+| `Permissions`     | Status, Request, OpenSettings                           | `internal/port/permissions.go` |
 
 `Overlay`, `Hotkeys`, `Permissions` заведены в ADR-006 / ADR-008 — они нужны сразу для TDD-тестов этапа 2 (поведение оверлея, click-through, шорткаты) и для обработки macOS-разрешений. `LLM.Complete` принимает `input { text, image? }` — multimodal (ADR-005).
 
@@ -77,13 +79,13 @@
 
 Все сценарии сводятся к одной цепочке: **Input → Enrich → LLM → Render**.
 
-| Шаг       | Что                                               | Кто                                               | Где                                                         |
+| Шаг | Что | Кто | Где |
 | --------- | ------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------- | --- |
-| 1. Input  | Поступление инпута (текст, STT, скриншот)         | frontend / bind                                   | Этап 2 / 3 / 4                                              |
-| 2. Enrich | (опционально) STT / OCR преобразуют media → текст | adapter: audio/stt, screenshot/ocr                |                                                             |
-| 3. LLM    | `LLM.Complete(input, history)` → string           | usecase → port.LLM → adapter:llm (local: llama.go | cloud: openai-compatible) — выбор по `AgentConfig.provider` |     |
-| 4. Render | Вывод ответа в оверлей + запись в историю         | frontend → bind (event `llm:response`)            |                                                             |
-| Ошибка    | `app:error { stage, error }` + локальный лог      | любой слой                                        | NFR-06, NFR-09                                              |
+| 1. Input | Поступление инпута (текст, STT, скриншот) | frontend / bind | Этап 2 / 3 / 4 |
+| 2. Enrich | (опционально) STT / OCR преобразуют media → текст | adapter: audio/stt, screenshot/ocr | |
+| 3. LLM | `LLM.Complete(input, history)` → string | usecase → port.LLM → adapter:llm (local: llama.go | cloud: openai-compatible) — выбор по `AgentConfig.provider` | |
+| 4. Render | Вывод ответа в оверлей + запись в историю | frontend → bind (event `llm:response`) | |
+| Ошибка | `app:error { stage, error }` + локальный лог | любой слой | NFR-06, NFR-09 |
 
 **Ручной ввод (Этап 2).** `frontend → SendText(text) → bind → usecase LLM.Complete → llm:response`. История сессии пополняется.
 

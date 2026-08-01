@@ -15,9 +15,13 @@ func NewLLM(engine port.LLM) *LLM {
 }
 
 func (l *LLM) SendText(text string) error {
-	return errors.New("not implemented")
+	if text == "" {
+		return errors.New("empty text")
+	}
+	_, err := l.engine.Complete(text, nil)
+	return err
 }
 
 func (l *LLM) Cancel() error {
-	return errors.New("not implemented")
+	return l.engine.Cancel()
 }

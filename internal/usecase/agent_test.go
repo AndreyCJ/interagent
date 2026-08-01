@@ -7,23 +7,12 @@ import (
 )
 
 type mockAgentStore struct {
-	agents   map[string]port.AgentConfig
-	activeID string
+	agents map[string]port.AgentConfig
 }
 
 func newMockAgentStore() *mockAgentStore {
-	return &mockAgentStore{
-		agents:   make(map[string]port.AgentConfig),
-		activeID: "",
-	}
+	return &mockAgentStore{agents: make(map[string]port.AgentConfig)}
 }
-
-func (m *mockAgentStore) CreateSession(s port.Session) error { return nil }
-func (m *mockAgentStore) GetSession(id string) (port.Session, error) {
-	return port.Session{}, nil
-}
-func (m *mockAgentStore) UpdateSession(s port.Session) error { return nil }
-func (m *mockAgentStore) DeleteSession(id string) error      { return nil }
 
 func (m *mockAgentStore) GetAgents() ([]port.AgentConfig, error) {
 	var result []port.AgentConfig
@@ -42,9 +31,6 @@ func (m *mockAgentStore) DeleteAgent(id string) error {
 	delete(m.agents, id)
 	return nil
 }
-
-func (m *mockAgentStore) GetSettings() (port.AppSettings, error) { return port.AppSettings{}, nil }
-func (m *mockAgentStore) SaveSettings(s port.AppSettings) error  { return nil }
 
 func TestAgent_List_ReturnsAllAgents(t *testing.T) {
 	store := newMockAgentStore()
@@ -107,13 +93,15 @@ func TestAgent_Delete_RemovesAgent(t *testing.T) {
 }
 
 func TestAgent_SetActive_SwitchesAgent(t *testing.T) {
+	const mockAgentID = "agent-2"
+
 	store := newMockAgentStore()
 	a := NewAgent(store)
 
-	cfg := port.AgentConfig{ID: "agent-2", Name: "Code Assistant"}
+	cfg := port.AgentConfig{ID: mockAgentID, Name: "Code Assistant", Model: "gemini"}
 	a.Save(cfg)
 
-	err := a.SetActive("agent-2")
+	err := a.SetActive(mockAgentID)
 	if err != nil {
 		t.Fatalf("SetActive() returned error: %v", err)
 	}
@@ -122,7 +110,7 @@ func TestAgent_SetActive_SwitchesAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetActive() returned error: %v", err)
 	}
-	if active.ID != "agent-2" {
-		t.Errorf("expected active agent ID 'agent-2', got %q", active.ID)
+	if active.ID != mockAgentID {
+		t.Errorf("expected active agent ID to be %s, got %v", mockAgentID, active.ID)
 	}
 }

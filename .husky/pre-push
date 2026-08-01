@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -e
+pnpm docs:format:check
+cd frontend && pnpm format:check

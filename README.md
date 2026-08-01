@@ -35,6 +35,6 @@ wails build           # production-сборка .app
 
 ```
 go test ./... && go vet ./... && go fmt ./...     # Go
-cd frontend && pnpm lint && pnpm fmt:check && pnpm test
+cd frontend && pnpm lint && pnpm format:check && pnpm test
 cd frontend && pnpm exec playwright test           # e2e
 ```

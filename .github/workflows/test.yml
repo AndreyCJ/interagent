@@ -15,10 +15,12 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: "1.25"
 
       - name: Check formatting
-        run: go fmt ./...
+        run: |
+          go fmt ./...
+          git diff --exit-code -- '*.go'
 
       - name: Run go vet
         run: go vet ./...
@@ -37,7 +39,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -46,14 +48,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Check docs formatting
+        working-directory: .
+        run: pnpm docs:format:check
+
       - name: Lint
         run: pnpm lint
 
       - name: Check formatting
-        run: pnpm fmt:check
+        run: pnpm format:check
 
       - name: Run unit tests
         run: pnpm test
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium
 
       - name: Run e2e tests
         run: pnpm exec playwright test
