@@ -22,15 +22,6 @@ func newMockSettingsStore() *mockSettingsStore {
 	}
 }
 
-func (m *mockSettingsStore) CreateSession(s port.Session) error { return nil }
-func (m *mockSettingsStore) GetSession(id string) (port.Session, error) {
-	return port.Session{}, nil
-}
-func (m *mockSettingsStore) UpdateSession(s port.Session) error     { return nil }
-func (m *mockSettingsStore) DeleteSession(id string) error          { return nil }
-func (m *mockSettingsStore) GetAgents() ([]port.AgentConfig, error) { return nil, nil }
-func (m *mockSettingsStore) SaveAgent(cfg port.AgentConfig) error   { return nil }
-func (m *mockSettingsStore) DeleteAgent(id string) error            { return nil }
 func (m *mockSettingsStore) GetSettings() (port.AppSettings, error) { return m.settings, nil }
 func (m *mockSettingsStore) SaveSettings(s port.AppSettings) error {
 	m.settings = s

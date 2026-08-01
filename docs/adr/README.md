@@ -12,6 +12,7 @@
 | ADR-006 | Порты Overlay и Hotkeys                        | Предложено | 2026-08-01 | Окно и глобальные шорткаты моделируются портами (TDD этапа 2). Переключаемый click-through ⇄ interactive по шорткату.                            |
 | ADR-007 | Аудио-пайплайн                                 | Предложено | 2026-08-01 | Источники: микрофон + системный звук (ScreenCaptureKit). Endpoint detection (whisper.cpp). Cancel при новом вводе.                               |
 | ADR-008 | macOS-разрешения                               | Предложено | 2026-08-01 | Микрофон, запись экрана, Accessibility. Централизованный модуль + событие `app:permission`.                                                      |
+| ADR-009 | Узкие интерфейсы хранилища (ISP)               | Принято    | 2026-08-01 | `port.Storage` разбит на `SessionStorage`, `AgentStorage`, `SettingsStorage`. Usecase'ы зависят только от нужного, моки в тестах минимальны.     |
 
 ## Как добавить ADR
 

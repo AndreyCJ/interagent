@@ -1,8 +1,6 @@
 package usecase
 
 import (
-	"errors"
-
 	"interagent/internal/port"
 )
 
@@ -16,13 +14,19 @@ func NewScreenshot(capture port.ScreenCapture, ocr port.OCR) *Screenshot {
 }
 
 func (s *Screenshot) CaptureFull() error {
-	return errors.New("not implemented")
+	_, err := s.capture.CaptureFull()
+	return err
 }
 
 func (s *Screenshot) CaptureRegion() error {
-	return errors.New("not implemented")
+	_, err := s.capture.CaptureRegion()
+	return err
 }
 
 func (s *Screenshot) CaptureAndOCR() (string, error) {
-	return "", errors.New("not implemented")
+	image, err := s.capture.CaptureRegion()
+	if err != nil {
+		return "", err
+	}
+	return s.ocr.ExtractText(image)
 }

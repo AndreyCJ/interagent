@@ -26,6 +26,7 @@
 | `adr/006-...md`        | ADR-006: порты Overlay и Hotkeys, переключаемый кликабельный режим                   | Предложено | Human + Agent   |
 | `adr/007-...md`        | ADR-007: аудио-пайплайн (SCK, endpoint detection, cancel)                            | Предложено | Human + Agent   |
 | `adr/008-...md`        | ADR-008: macOS-разрешения (микрофон, запись экрана, Accessibility)                   | Предложено | Human + Agent   |
+| `adr/009-...md`        | ADR-009: узкие интерфейсы хранилища (ISP)                                            | Принято    | Human + Agent   |
 
 ## Что где правда (правило для агентов)
 

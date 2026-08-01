@@ -23,6 +23,7 @@ Interagent — приложение-оверлей, которое в реаль
 2. **ADR-001/005 обязательны:** STT — только локально (whisper.cpp, единственное cgo-место). LLM — локальный (llama.go, pure Go) или облачный OpenAI-совместимый по выбору пользователя (см. ADR-004); apiKey хранится зашифрованным (AES-256-GCM, мастер-ключ в Keychain).
 3. **Изменение контракта или архитектуры требует ADR** (см. `docs/adr/README.md`).
 4. **Чистые зависимости:** `adapter → port ← usecase ← bind ← frontend`. Ни `usecase`, ни `port` не зависят от реализаций адаптеров.
+5. **Markdown форматируется только через Prettier.** После правки любого `.md` (docs/, AGENTS.md, README.md и т.д.) — прогнать `pnpm docs:format:check`; для автоформатирования — `pnpm docs:format`.
 
 ## Как запустить проверки
 
@@ -30,11 +31,13 @@ Interagent — приложение-оверлей, которое в реаль
 
 ```
 pnpm install            # pnpm workspace (корень репо): все пакеты + git-хуки
-go test ./...           # Go backend (testify)
+pnpm --dir frontend build  # go:embed требует frontend/src/app/dist (перед go-проверками)
+go test ./...           # Go backend (stdlib testing)
 go vet ./...           # статический анализ
 go fmt ./...           # formatting
+pnpm docs:format:check # prettier для .md (docs/, AGENTS.md, README.md)
 cd frontend && pnpm lint
-cd frontend && pnpm fmt:check
+cd frontend && pnpm format:check
 cd frontend && pnpm test
 cd frontend && pnpm exec playwright test   # e2e
 ```

@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+set -e
+
+echo "=== Checking docks formatting..."
+pnpm docs:format:check
+
+echo "=== Checking frontend formatting"
+cd frontend && pnpm format:check

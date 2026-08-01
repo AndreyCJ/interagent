@@ -1,35 +1,68 @@
 package usecase
 
 import (
-	"errors"
+	"github.com/google/uuid"
 
 	"interagent/internal/port"
 )
 
 type Agent struct {
-	store port.Storage
+	store    port.AgentStorage
+	activeID string
 }
 
-func NewAgent(store port.Storage) *Agent {
+func NewAgent(store port.AgentStorage) *Agent {
 	return &Agent{store: store}
 }
 
 func (a *Agent) List() ([]port.AgentConfig, error) {
-	return nil, errors.New("not implemented")
+	agents, err := a.store.GetAgents()
+	if err != nil {
+		return nil, err
+	}
+	if agents == nil {
+		return []port.AgentConfig{}, nil
+	}
+	return agents, nil
 }
 
 func (a *Agent) GetActive() (port.AgentConfig, error) {
-	return port.AgentConfig{}, errors.New("not implemented")
+	if a.activeID == "" {
+		return port.AgentConfig{}, nil
+	}
+	agents, err := a.store.GetAgents()
+	if err != nil {
+		return port.AgentConfig{}, err
+	}
+	for _, agent := range agents {
+		if agent.ID == a.activeID {
+			return agent, nil
+		}
+	}
+	return port.AgentConfig{}, nil
 }
 
 func (a *Agent) SetActive(id string) error {
-	return errors.New("not implemented")
+	a.activeID = id
+	return nil
 }
 
 func (a *Agent) Save(cfg port.AgentConfig) (port.AgentConfig, error) {
-	return port.AgentConfig{}, errors.New("not implemented")
+	if cfg.ID == "" {
+		cfg.ID = uuid.NewString()
+	}
+	if err := a.store.SaveAgent(cfg); err != nil {
+		return port.AgentConfig{}, err
+	}
+	return cfg, nil
 }
 
 func (a *Agent) Delete(id string) error {
-	return errors.New("not implemented")
+	if err := a.store.DeleteAgent(id); err != nil {
+		return err
+	}
+	if a.activeID == id {
+		a.activeID = ""
+	}
+	return nil
 }

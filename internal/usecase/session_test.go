@@ -37,26 +37,6 @@ func (m *mockSessionStore) DeleteSession(id string) error {
 	return nil
 }
 
-func (m *mockSessionStore) GetAgents() ([]port.AgentConfig, error) {
-	return nil, nil
-}
-
-func (m *mockSessionStore) SaveAgent(cfg port.AgentConfig) error {
-	return nil
-}
-
-func (m *mockSessionStore) DeleteAgent(id string) error {
-	return nil
-}
-
-func (m *mockSessionStore) GetSettings() (port.AppSettings, error) {
-	return port.AppSettings{}, nil
-}
-
-func (m *mockSessionStore) SaveSettings(s port.AppSettings) error {
-	return nil
-}
-
 func TestSession_Create(t *testing.T) {
 	store := newMockSessionStore()
 	s := NewSession(store)

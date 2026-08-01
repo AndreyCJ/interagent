@@ -2,4 +2,6 @@ build/bin
 node_modules
 frontend/src/app/dist
 frontend/.eslintcache
+frontend/test-results
+frontend/playwright-report
 .DS_Store

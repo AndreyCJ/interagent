@@ -20,7 +20,7 @@
 Этап считается готовым, когда:
 
 - [ ] Тесты написаны и зелёные (`go test ./...`, `pnpm test`)
-- [ ] Линт и формат чисты (`go vet ./...`, `go fmt ./...`, `pnpm lint`, `pnpm fmt:check`)
+- [ ] Линт и формат чисты (`go vet ./...`, `go fmt ./...`, `pnpm lint`, `pnpm format:check`)
 - [ ] E2E-проверка пройдена (`pnpm exec playwright test`), если сценарий покрывает UI
 - [ ] Нет регрессий в CI (GitHub Actions — `.github/workflows/test.yml`)
 - [ ] Твой аппрув на тесты
@@ -37,12 +37,12 @@
 
 ## Инструменты
 
-| Слой          | Инструмент              | Команда                                      |
-| ------------- | ----------------------- | -------------------------------------------- |
-| Go-бэкенд     | `go test` + testify     | `go test ./...`                              |
-| Go-статика    | `go vet` / `go fmt`     | `go vet ./...`, `go fmt ./...`               |
-| UI-компоненты | vitest + vue-test-utils | `pnpm test`                                  |
-| UI-lint       | eslint + prettier       | `pnpm lint`, `pnpm fmt:check`                |
-| E2E           | Playwright              | `pnpm exec playwright test`                  |
-| Git-коммиты   | husky + commitlint      | `git commit` (хук `commit-msg`, корень репо) |
-| CI            | GitHub Actions          | `.github/workflows/test.yml`                 |
+| Слой          | Инструмент                 | Команда                                      |
+| ------------- | -------------------------- | -------------------------------------------- |
+| Go-бэкенд     | `go test` (stdlib testing) | `go test ./...`                              |
+| Go-статика    | `go vet` / `go fmt`        | `go vet ./...`, `go fmt ./...`               |
+| UI-компоненты | vitest + vue-test-utils    | `pnpm test`                                  |
+| UI-lint       | eslint + prettier          | `pnpm lint`, `pnpm format:check`             |
+| E2E           | Playwright                 | `pnpm exec playwright test`                  |
+| Git-коммиты   | husky + commitlint         | `git commit` (хук `commit-msg`, корень репо) |
+| CI            | GitHub Actions             | `.github/workflows/test.yml`                 |
