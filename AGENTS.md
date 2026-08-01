@@ -29,7 +29,8 @@ Interagent — приложение-оверлей, которое в реаль
 Соответствует GitHub Actions (`.github/workflows/test.yml`):
 
 ```
-go test ./...          # Go backend (testify)
+pnpm install            # pnpm workspace (корень репо): все пакеты + git-хуки
+go test ./...           # Go backend (testify)
 go vet ./...           # статический анализ
 go fmt ./...           # formatting
 cd frontend && pnpm lint

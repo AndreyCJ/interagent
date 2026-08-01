@@ -33,14 +33,16 @@
 4. **CI.** Все тесты прогоняются на каждый коммит в `main` / каждый PR.
 5. **Изменение контракта или архитектуры требует ADR** (см. `docs/adr/README.md`).
 6. **Исключения.** Если в ходе реализации вскрылся нюанс, которого не было в тестах — тесты дополняются, ревьювится дифф, потом фикс.
+7. **Формат коммитов.** Только [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, `docs:` и т.д.). Нарушение блокируется локальным хуком `commit-msg` (husky + commitlint, на корне репозитория).
 
 ## Инструменты
 
-| Слой          | Инструмент              | Команда                        |
-| ------------- | ----------------------- | ------------------------------ |
-| Go-бэкенд     | `go test` + testify     | `go test ./...`                |
-| Go-статика    | `go vet` / `go fmt`     | `go vet ./...`, `go fmt ./...` |
-| UI-компоненты | vitest + vue-test-utils | `pnpm test`                    |
-| UI-lint       | eslint + prettier       | `pnpm lint`, `pnpm fmt:check`  |
-| E2E           | Playwright              | `pnpm exec playwright test`    |
-| CI            | GitHub Actions          | `.github/workflows/test.yml`   |
+| Слой          | Инструмент              | Команда                                      |
+| ------------- | ----------------------- | -------------------------------------------- |
+| Go-бэкенд     | `go test` + testify     | `go test ./...`                              |
+| Go-статика    | `go vet` / `go fmt`     | `go vet ./...`, `go fmt ./...`               |
+| UI-компоненты | vitest + vue-test-utils | `pnpm test`                                  |
+| UI-lint       | eslint + prettier       | `pnpm lint`, `pnpm fmt:check`                |
+| E2E           | Playwright              | `pnpm exec playwright test`                  |
+| Git-коммиты   | husky + commitlint      | `git commit` (хук `commit-msg`, корень репо) |
+| CI            | GitHub Actions          | `.github/workflows/test.yml`                 |
