@@ -66,12 +66,15 @@
 | `Overlay`         | Show, Hide, Toggle, SetMode, GetMode                    | `internal/port/overlay.go`     |
 | `Hotkeys`         | Register, Unregister                                    | `internal/port/hotkeys.go`     |
 | `Permissions`     | Status, Request, OpenSettings                           | `internal/port/permissions.go` |
+| `Events`          | Emit(name, payload)                                     | `internal/port/events.go`      |
 
 `Overlay`, `Hotkeys`, `Permissions` заведены в ADR-006 / ADR-008 — они нужны сразу для TDD-тестов этапа 2 (поведение оверлея, click-through, шорткаты) и для обработки macOS-разрешений. `LLM.Complete` принимает `input { text, image? }` — multimodal (ADR-005).
 
 > **Overlay** — окно моделируется как порт (ADR-006): `Show/Hide/Toggle/SetMode/GetMode`. Реализация — Wails + платформенные вызовы в `adapter/window`. Тестируется usecase-слой с моками.
 
-> **Источники правды.** Типы данных и bind-методы живут в коде: Go — `internal/port/types.go` (там же зеркалятся типы, пересекающиеся с фронтендом: Message, Session, AgentConfig, AppSettings, Shortcut, AudioDevice), TS — `frontend/src/common/types/api.types.ts`, биндинги генерируются `wails generate`. Документально описан только контракт рантайм-событий: `docs/04-events.md`.
+> **События** — асинхронный канал `usecase → frontend` через порт `Events` (`Emit`), реализация на Wails находится в `adapter/events` (обёб-тка над `runtime.EventsEmit`, см. ADR-010). Usecase эмитят события из `04-events.md`, адресата (фронтенд) не знают: транспортная деталь.
+
+> **Источники правды.** Типы данных и bind-методы живут в коде: Go — `internal/port/types.go` (там же зеркалятся типы, пересекающиеся с фронтендом: Message, Session, AgentConfig, AppSettings, Shortcut, AudioDevice; режимы и события — константы/интерфейсы в `internal/port/{overlay,hotkeys,permissions,events}.go`), TS — `frontend/src/common/types/api.types.ts`, биндинги генерируются `wails generate`. Документально описан только контракт рантайм-событий: `docs/04-events.md`.
 
 ---
 
@@ -87,7 +90,7 @@
 | 4. Render | Вывод ответа в оверлей + запись в историю | frontend → bind (event `llm:response`) | |
 | Ошибка | `app:error { stage, error }` + локальный лог | любой слой | NFR-06, NFR-09 |
 
-**Ручной ввод (Этап 2).** `frontend → SendText(text) → bind → usecase LLM.Complete → llm:response`. История сессии пополняется.
+**Ручной ввод (Этап 2).** `frontend → SendText(text) → bind → usecase LLM.Complete → llm:started / llm:response` (через порт `Events`). Usecase пополняет историю текущей сессии (`user` + `assistant`); `llm:error` — без падения (NFR-06).
 
 **Аудио (Этап 3).** `StartListening → AudioInput (микрофон / системный звук SCK) → STT (whisper.cpp, endpoint detection) → transcription:done → SendText → LLM → llm:response`. При новом вводе во время генерации — cancel и генерация на свежий ввод (ADR-007).
 
