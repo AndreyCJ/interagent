@@ -31,6 +31,7 @@ Interagent — приложение-оверлей, которое в реаль
 
 ```
 pnpm install            # pnpm workspace (корень репо): все пакеты + git-хуки
+pnpm --dir frontend build  # go:embed требует frontend/src/app/dist (перед go-проверками)
 go test ./...           # Go backend (stdlib testing)
 go vet ./...           # статический анализ
 go fmt ./...           # formatting
