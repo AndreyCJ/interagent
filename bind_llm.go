@@ -1,23 +1,23 @@
 package main
 
 type LLMBind struct {
-	usecase interface {
+	app interface {
 		SendText(text string) error
 		Cancel() error
 	}
 }
 
-func NewLLMBind(u interface {
+func NewLLMBind(app interface {
 	SendText(text string) error
 	Cancel() error
 }) *LLMBind {
-	return &LLMBind{usecase: u}
+	return &LLMBind{app: app}
 }
 
 func (b *LLMBind) SendText(text string) error {
-	return b.usecase.SendText(text)
+	return b.app.SendText(text)
 }
 
 func (b *LLMBind) CancelResponse() error {
-	return b.usecase.Cancel()
+	return b.app.Cancel()
 }

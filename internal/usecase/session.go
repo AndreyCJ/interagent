@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -9,7 +10,8 @@ import (
 )
 
 type Session struct {
-	store port.SessionStorage
+	store     port.SessionStorage
+	currentID string
 }
 
 func NewSession(store port.SessionStorage) *Session {
@@ -25,6 +27,7 @@ func (s *Session) Create() (port.Session, error) {
 	if err := s.store.CreateSession(session); err != nil {
 		return port.Session{}, err
 	}
+	s.currentID = session.ID
 	return session, nil
 }
 
@@ -32,11 +35,40 @@ func (s *Session) Get(id string) (port.Session, error) {
 	return s.store.GetSession(id)
 }
 
-func (s *Session) Clear(id string) error {
-	session, err := s.store.GetSession(id)
+func (s *Session) GetCurrent() (port.Session, error) {
+	if s.currentID == "" {
+		return port.Session{}, errors.New("no session")
+	}
+	return s.store.GetSession(s.currentID)
+}
+
+func (s *Session) AppendMessage(role, text string) error {
+	if role != "user" && role != "assistant" && role != "interviewer" {
+		return errors.New("invalid role")
+	}
+	if text == "" {
+		return errors.New("empty text")
+	}
+	if s.currentID == "" {
+		return errors.New("no session")
+	}
+	cur, err := s.store.GetSession(s.currentID)
 	if err != nil {
 		return err
 	}
-	session.ChatHistory = []port.Message{}
-	return s.store.UpdateSession(session)
+	cur.ChatHistory = append(cur.ChatHistory, port.Message{
+		Role:      role,
+		Text:      text,
+		Timestamp: time.Now().UnixMilli(),
+	})
+	return s.store.UpdateSession(cur)
+}
+
+func (s *Session) Clear(id string) error {
+	cur, err := s.store.GetSession(id)
+	if err != nil {
+		return err
+	}
+	cur.ChatHistory = []port.Message{}
+	return s.store.UpdateSession(cur)
 }
