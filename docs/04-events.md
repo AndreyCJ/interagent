@@ -1,70 +1,70 @@
 # Events (Backend → Frontend)
 
-**Дата:** 2026-08-01
-**Статус:** Утверждён
+**Date:** 2026-08-01
+**Status:** Approved
 
 ---
 
-## Правила
+## Rules
 
-1. **События — единственный асинхронный канал** backend → frontend. Bind-методы, возвращающие `void`, отвечают событием.
-2. **Типы данных и bind-методы — в коде, не здесь.** Источник правды для типов:
+1. **Events are the only async channel** backend → frontend. Bind methods returning `void` answer with an event.
+2. **Data types and bind methods — in code, not here.** Source of truth for types:
    - Go: `internal/port/types.go`
    - TypeScript: `frontend/src/common/types/api.types.ts`
-   - JS-биндинги генерируются: `wails generate` → `frontend/wailsjs/`
-3. **Имена событий и payload — только здесь.** Wails-события это строки с JSON-данными без проверки типов, поэтому их контракт документируется вручную.
-4. **Изменение событий — через PR + ревью** (см. DoD в `03-process.md`).
-5. **STT — локальный (whisper.cpp). LLM — локальный (llama.go) или облачный OpenAI-compatible по выбору пользователя** (ADR-001, ADR-004, ADR-005).
+   - JS bindings are generated: `wails generate` → `frontend/wailsjs/`
+3. **Event names and payloads — only here.** Wails events are strings with JSON data without type checking, so their contract is documented manually.
+4. **Changing events — via PR + review** (see DoD in `03-process.md`).
+5. **STT — local (whisper.cpp). LLM — local (llama.go) or cloud OpenAI-compatible, user's choice** (ADR-001, ADR-004, ADR-005).
 
 ---
 
-## Сессия
+## Session
 
-| Event             | Данные    | Когда                |
-| ----------------- | --------- | -------------------- |
-| `session:created` | `Session` | Новая сессия создана |
+| Event             | Data      | When                |
+| ----------------- | --------- | ------------------- |
+| `session:created` | `Session` | New session created |
 
-## Аудио / STT
+## Audio / STT
 
-| Event                   | Данные                                 | Когда                         |
-| ----------------------- | -------------------------------------- | ----------------------------- |
-| `audio:level`           | `{ level: number }`                    | Уровень микрофона (throttled) |
-| `transcription:partial` | `{ text: string }`                     | Промежуточный текст STT       |
-| `transcription:done`    | `{ text: string, confidence: number }` | Финальный текст STT           |
+| Event                   | Data                                   | When                         |
+| ----------------------- | -------------------------------------- | ---------------------------- |
+| `audio:level`           | `{ level: number }`                    | Microphone level (throttled) |
+| `transcription:partial` | `{ text: string }`                     | Partial STT text             |
+| `transcription:done`    | `{ text: string, confidence: number }` | Final STT text               |
 
-## Скриншот / OCR
+## Screenshot / OCR
 
-| Event                 | Данные               | Когда                    |
-| --------------------- | -------------------- | ------------------------ |
-| `screenshot:captured` | `{ base64: string }` | Скриншот готов (preview) |
-| `screenshot:error`    | `{ error: string }`  | Ошибка захвата           |
-| `ocr:done`            | `{ text: string }`   | OCR завершён             |
+| Event                 | Data                 | When                       |
+| --------------------- | -------------------- | -------------------------- |
+| `screenshot:captured` | `{ base64: string }` | Screenshot ready (preview) |
+| `screenshot:error`    | `{ error: string }`  | Capture error              |
+| `ocr:done`            | `{ text: string }`   | OCR complete               |
 
 ## LLM
 
-| Event           | Данные              | Когда                                    |
-| --------------- | ------------------- | ---------------------------------------- |
-| `llm:started`   | `{}`                | Генерация началась (индикатор «печатаю») |
-| `llm:response`  | `{ text: string }`  | Полный ответ LLM                         |
-| `llm:error`     | `{ error: string }` | Ошибка LLM                               |
-| `llm:cancelled` | `{}`                | Генерация отменена (новый ввод, ADR-007) |
+| Event           | Data                | When                                      |
+| --------------- | ------------------- | ----------------------------------------- |
+| `llm:started`   | `{}`                | Generation started ("typing" indicator)   |
+| `llm:response`  | `{ text: string }`  | Full LLM response                         |
+| `llm:error`     | `{ error: string }` | LLM error                                 |
+| `llm:cancelled` | `{}`                | Generation cancelled (new input, ADR-007) |
 
-## Оверлей
+## Overlay
 
-| Event          | Данные                                       | Когда                       |
-| -------------- | -------------------------------------------- | --------------------------- |
-| `overlay:mode` | `{ mode: 'click-through' \| 'interactive' }` | Смена режима окна (ADR-006) |
+| Event          | Data                                         | When                          |
+| -------------- | -------------------------------------------- | ----------------------------- |
+| `overlay:mode` | `{ mode: 'click-through' \| 'interactive' }` | Window mode changed (ADR-006) |
 
-## Настройки / агенты
+## Settings / agents
 
-| Event              | Данные           | Когда                  |
-| ------------------ | ---------------- | ---------------------- |
-| `agent:changed`    | `{ id: string }` | Смена активного агента |
-| `settings:updated` | `AppSettings`    | Настройки сохранены    |
+| Event              | Data             | When                 |
+| ------------------ | ---------------- | -------------------- |
+| `agent:changed`    | `{ id: string }` | Active agent changed |
+| `settings:updated` | `AppSettings`    | Settings saved       |
 
-## Общие
+## Common
 
-| Event            | Данные                                     | Когда                             |
+| Event            | Data                                       | When                              |
 | ---------------- | ------------------------------------------ | --------------------------------- |
-| `app:error`      | `{ stage: string, error: string }`         | Любая ошибка                      |
-| `app:permission` | `{ permission: string, granted: boolean }` | Статус macOS-разрешения (ADR-008) |
+| `app:error`      | `{ stage: string, error: string }`         | Any error                         |
+| `app:permission` | `{ permission: string, granted: boolean }` | macOS permission status (ADR-008) |

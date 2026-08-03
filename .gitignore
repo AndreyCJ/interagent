@@ -4,4 +4,5 @@ frontend/src/app/dist
 frontend/.eslintcache
 frontend/test-results
 frontend/playwright-report
+docs/superpowers
 .DS_Store

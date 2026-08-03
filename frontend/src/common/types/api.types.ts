@@ -40,3 +40,7 @@ export interface AudioDevice {
   name: string
   isDefault: boolean
 }
+
+export type OverlayMode = 'click-through' | 'interactive'
+
+export type Permission = 'microphone' | 'screen-recording' | 'accessibility'

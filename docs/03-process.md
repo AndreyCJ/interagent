@@ -1,48 +1,48 @@
-# Процесс разработки
+# Development Process
 
-**Дата:** 2026-07-30
-**Статус:** Утверждён
+**Date:** 2026-07-30
+**Status:** Approved
 
 ---
 
-## Цикл этапа
+## Stage cycle
 
-Каждый этап в [01-tz.md](01-tz.md) проходит один и тот же цикл:
+Each stage in [01-tz.md](01-tz.md) goes through the same cycle:
 
-1. Написать тесты (spec / контракты)
-2. Ревью тестов
-3. Реализация функционала
-4. Все тесты зелёные
-5. Приёмка
+1. Write tests (spec / contracts)
+2. Review tests
+3. Implement the feature
+4. All tests green
+5. Acceptance
 
 ## Definition of Done (DoD)
 
-Этап считается готовым, когда:
+A stage is considered done when:
 
-- [ ] Тесты написаны и зелёные (`go test ./...`, `pnpm test`)
-- [ ] Линт и формат чисты (`go vet ./...`, `go fmt ./...`, `pnpm lint`, `pnpm format:check`)
-- [ ] E2E-проверка пройдена (`pnpm exec playwright test`), если сценарий покрывает UI
-- [ ] Нет регрессий в CI (GitHub Actions — `.github/workflows/test.yml`)
-- [ ] Твой аппрув на тесты
+- [ ] Tests are written and green (`go test ./...`, `pnpm test`)
+- [ ] Lint and format are clean (`go vet ./...`, `go fmt ./...`, `pnpm lint`, `pnpm format:check`)
+- [ ] E2E check passed (`pnpm exec playwright test`), if the scenario covers the UI
+- [ ] No regressions in CI (GitHub Actions — `.github/workflows/test.yml`)
+- [ ] Your approval of the tests
 
-## Правила
+## Rules
 
-1. **Тесты — before код.** Суть тестов ревьювится разработчиком перед их написанием. Без зелёных тестов реализация не принимается.
-2. **Один этап — один вертикальный слайс.** Сценарий работает от UI до бэкенда (или от адаптера до UI).
-3. **Ревью — блокирующее.** Без твоего аппрува на тесты следующий шаг не начинается.
-4. **CI.** Все тесты прогоняются на каждый коммит в `main` / каждый PR.
-5. **Изменение контракта или архитектуры требует ADR** (см. `docs/adr/README.md`).
-6. **Исключения.** Если в ходе реализации вскрылся нюанс, которого не было в тестах — тесты дополняются, ревьювится дифф, потом фикс.
-7. **Формат коммитов.** Только [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, `docs:` и т.д.). Нарушение блокируется локальным хуком `commit-msg` (husky + commitlint, на корне репозитория).
+1. **Tests before code.** The essence of the tests is reviewed by the developer before they are written. Without green tests the implementation is not accepted.
+2. **One stage — one vertical slice.** The scenario works from the UI to the backend (or from the adapter to the UI).
+3. **Review is blocking.** Without your approval of the tests the next step does not start.
+4. **CI.** All tests run on every commit to `main` / every PR.
+5. **Changing the contract or architecture requires an ADR** (see `docs/adr/README.md`).
+6. **Exceptions.** If implementation uncovers a nuance that was not in the tests — the tests are extended, the diff is reviewed, then the fix.
+7. **Commit format.** Only [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, `docs:` etc.). Violations are blocked by the local `commit-msg` hook (husky + commitlint, at the repo root).
 
-## Инструменты
+## Tools
 
-| Слой          | Инструмент                 | Команда                                      |
-| ------------- | -------------------------- | -------------------------------------------- |
-| Go-бэкенд     | `go test` (stdlib testing) | `go test ./...`                              |
-| Go-статика    | `go vet` / `go fmt`        | `go vet ./...`, `go fmt ./...`               |
-| UI-компоненты | vitest + vue-test-utils    | `pnpm test`                                  |
-| UI-lint       | eslint + prettier          | `pnpm lint`, `pnpm format:check`             |
-| E2E           | Playwright                 | `pnpm exec playwright test`                  |
-| Git-коммиты   | husky + commitlint         | `git commit` (хук `commit-msg`, корень репо) |
-| CI            | GitHub Actions             | `.github/workflows/test.yml`                 |
+| Layer         | Tool                       | Command                                     |
+| ------------- | -------------------------- | ------------------------------------------- |
+| Go backend    | `go test` (stdlib testing) | `go test ./...`                             |
+| Go static     | `go vet` / `go fmt`        | `go vet ./...`, `go fmt ./...`              |
+| UI components | vitest + vue-test-utils    | `pnpm test`                                 |
+| UI lint       | eslint + prettier          | `pnpm lint`, `pnpm format:check`            |
+| E2E           | Playwright                 | `pnpm exec playwright test`                 |
+| Git commits   | husky + commitlint         | `git commit` (`commit-msg` hook, repo root) |
+| CI            | GitHub Actions             | `.github/workflows/test.yml`                |

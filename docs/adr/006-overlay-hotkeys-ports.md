@@ -1,25 +1,25 @@
-# ADR-006: Порты Overlay и Hotkeys
+# ADR-006: Overlay and Hotkeys ports
 
-**Дата:** 2026-08-01
-**Статус:** Предложено
-**Связанные документы:** 01-tz.md §7/§8 (этап 2), 02-nfr.md (NFR-04, NFR-05), 05-architecture.md §2/§4, 06-bind-contracts.md
+**Date:** 2026-08-01
+**Status:** Accepted
+**Related documents:** 01-tz.md §7/§8 (stage 2), 02-nfr.md (NFR-04, NFR-05), 05-architecture.md §2/§4, 06-bind-contracts.md
 
 ---
 
-## Контекст
+## Context
 
-Окно-оверлей и глобальные шорткаты — ядро продукта (01-tz §1, этап 2). Требования:
+The overlay window and global shortcuts are the core of the product (01-tz §1, stage 2). Requirements:
 
-- Click-through по умолчанию, **переключаемый кликабельный режим** по глобальному шорткату (решение владельца, 2026-08-01). В кликабельном режиме доступны ручной ввод и настройки в том же окне.
-- Глобальные шорткаты работают, когда окно не в фокусе, в том числе в fullscreen (NFR-05).
+- Click-through by default, **toggleable interactive mode** via a global shortcut (owner's decision, 2026-08-01). In interactive mode, manual input and settings are available in the same window.
+- Global shortcuts work when the window is not focused, including in fullscreen (NFR-05).
 
-Ранее в `05-architecture.md §4` было сказано, что окно «не моделируется как порт» (управление — через Wails + платформенные вызовы). Это мешает TDD: этап 2 требует «тесты на поведение оверлея (открыть/скрыть, click-through, шорткаты)» (01-tz:115), а тестировать usecase без порта невозможно.
+Earlier `05-architecture.md §4` said the window "is not modeled as a port" (managed via Wails + platform calls). This blocks TDD: stage 2 requires "tests on overlay behavior (show/hide, click-through, shortcuts)" (01-tz:115), and testing a usecase without a port is impossible.
 
-## Варианты
+## Options
 
-### A. Портировать Overlay и Hotkeys через порты [выбран]
+### A. Port Overlay and Hotkeys via ports [chosen]
 
-Добавить в `internal/port/`:
+Add to `internal/port/`:
 
 ```
 // overlay.go
@@ -44,55 +44,64 @@ interface Hotkeys {
 }
 ```
 
-- `usecase/overlay` — бизнес-логика: переключение режима, валидация, генерация события `overlay:mode`.
-- `usecase/hotkeys` — регистрация шорткатов из `AppSettings.Shortcuts`, маппинг `id` → действие.
-- Адаптеры: `adapter/window/` (Wails + платформенные вызовы: `ignoresMouseEvents`, level, регистрация хоткеев) и `adapter/hotkeys/` (CGEventTap / Carbon RegisterEventHotKey).
-- Bind: `OverlayBind`, `HotkeysBind` (методы в `06-bind-contracts.md`).
+- `usecase/overlay` — business logic: mode toggling, validation, `overlay:mode` event generation.
+- `usecase/hotkeys` — registration of shortcuts from `AppSettings.Shortcuts`, `id` → action mapping.
+- Adapters: `adapter/window/` (Wails + platform calls: `ignoresMouseEvents`, level, hotkey registration) and `adapter/hotkeys/` (CGEventTap / Carbon RegisterEventHotKey).
+- Bind: `OverlayBind`, `HotkeysBind` (methods in `06-bind-contracts.md`).
 
-**Плюсы:**
+**Pros:**
 
-- usecase тестируется с моками (TDD этап 2).
-- Режим кликабельности — явная сущность, а не размазанные нативные вызовы.
+- The usecase is tested with mocks (stage-2 TDD).
+- Clickability mode is an explicit entity, not scattered native calls.
 
-**Минусы:**
+**Cons:**
 
-- Больше кода на раннем этапе; адаптер `window` частично дублирует управление Wails-окном.
+- More code early on; the `window` adapter partially duplicates Wails window management.
 
-### B. Оставить окно вне портов (тесты только e2e)
+### B. Keep the window outside ports (tests only e2e)
 
-**Плюсы:**
+**Pros:**
 
-- Меньше абстракций на старте.
+- Fewer abstractions at the start.
 
-**Минусы:**
+**Cons:**
 
-- Этап 2 требует unit-тестов на поведение оверлея; без порта их писать негде.
-- Режимы окна не тестируются в CI (e2e отложено, п.7 ревью).
-- NFR-04 (click-through) остаётся без автоматической проверки в Go-слое.
+- Stage 2 requires unit tests for overlay behavior; without a port there is nowhere to write them.
+- Window modes are not tested in CI (e2e postponed, review item 7).
+- NFR-04 (click-through) stays without an automated check in the Go layer.
 
-## Критерии выбора
+## Selection criteria
 
-| Критерий                    | A (порты) | B (вне портов)  |
-| --------------------------- | --------- | --------------- |
-| TDD-тесты этапа 2           | ✅        | ❌              |
-| Тестируемость click-through | ✅        | ⚠️ (только e2e) |
-| Явная модель режимов окна   | ✅        | ❌              |
-| Объём кода на старте        | ⚠️        | ✅              |
+| Criterion                  | A (ports) | B (outside ports) |
+| -------------------------- | --------- | ----------------- |
+| Stage-2 TDD tests          | ✅        | ❌                |
+| Click-through testability  | ✅        | ⚠️ (e2e only)     |
+| Explicit window mode model | ✅        | ❌                |
+| Code volume at the start   | ⚠️        | ✅                |
 
-## Решение
+## Decision
 
-Выбран вариант **A** — завести порты `Overlay` и `Hotkeys` и соответствующие usecase. Этап 2 начинает работать с них (тесты → реализация).
+Option **A** chosen — introduce the `Overlay` and `Hotkeys` ports and the corresponding usecases. Stage 2 starts with them (tests → implementation).
 
-### События
+### Events
 
-- `overlay:mode` — смена режима (click-through ⇄ interactive). Данные: `{ mode: string }`.
-- Переключение кликабельного режима — глобальный шорткат (по умолчанию `Cmd+Shift+Space`), регистрируется через `Hotkeys` и настраивается в `AppSettings.Shortcuts`.
+- `overlay:mode` — mode change (click-through ⇄ interactive). Data: `{ mode: string }`.
+- Interactive mode toggle — global shortcut (default `Cmd+Shift+Space`), registered via `Hotkeys` and configurable in `AppSettings.Shortcuts`.
 
-### Примечание к NFR-04
+### Note to NFR-04
 
-NFR-04 дополняется: click-through по умолчанию, кликабельный режим — по глобальному шорткату. В кликабельном режиме окно может перехватывать мышь/клавиатуру (ручной ввод, настройки).
+NFR-04 is extended: click-through by default, interactive mode via a global shortcut. In interactive mode the window can intercept mouse/keyboard (manual input, settings).
 
-## Компромиссы
+## Trade-offs
 
-- Адаптер `window` будет содержать платформенные вызовы macOS (CGEventTap для хоткеев требует разрешения Accessibility — см. ADR-008). Они не покрываются unit-тестами в Go-слое, только e2e/ручная проверка.
-- Один глобальный шорткат занят переключением режима — его нельзя назначить на другое действие.
+- The `window` adapter will contain macOS platform calls (CGEventTap for hotkeys requires Accessibility permission — see ADR-008). They are not covered by unit tests in the Go layer, only e2e/manual checks.
+- One global shortcut is occupied by the mode toggle — it cannot be assigned to another action.
+
+## Update (2026-08-03, stage 2)
+
+The native `internal/adapter/window/` adapter was introduced in stage 2 (previously deferred):
+
+- **Transparency** of the window via Wails options (cross-platform): `Mac.WebviewIsTransparent`/`WindowIsTranslucent`, `Windows.WebviewIsTransparent`/`WindowIsTranslucent`, `Linux.WindowIsTranslucent`, `BackgroundColour` with `A=0`; transparent background in CSS.
+- **Click-through (macOS):** `apply_darwin.go` (cgo, Obj-C) calls `setIgnoresMouseEvents:` on the main `NSWindow` according to the mode. Windows/Linux — stubs (WS_EX_TRANSPARENT / X11-passthrough deferred).
+- **Always-on-top:** `runtime.WindowSetAlwaysOnTop(ctx, true)` in `startup`.
+- **Mode toggle:** while the hotkey adapter is a stub, the menu item "Overlay → Toggle Click-through" is used. The global shortcut (ADR-008) remains for the future.

@@ -8,6 +8,6 @@ export default defineConfig({
   plugins: [vue()],
   test: {
     environment: 'happy-dom',
-    include: ['../features/**/tests/*.test.ts'],
+    include: ['../features/**/tests/*.test.ts', '../common/**/tests/*.test.ts'],
   },
 })

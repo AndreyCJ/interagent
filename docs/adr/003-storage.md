@@ -1,69 +1,69 @@
-# ADR-003: Хранилище — SQLite vs JSON-файлы
+# ADR-003: Storage — SQLite vs JSON files
 
-**Дата:** 2026-08-01
-**Статус:** Принято
-**Связанные документы:** 01-tz.md §7, 05-architecture.md §6
+**Date:** 2026-08-01
+**Status:** Accepted
+**Related documents:** 01-tz.md §7, 05-architecture.md §6
 
 ---
 
-## Контекст
+## Context
 
-Приложение хранит локально: историю сессий (сообщения + метаданные), конфигурацию агентов и настройки пользователя. Требования: отсутствие внешних сервисов, работа в macOS v1 (Intel + Apple Silicon), минимальная настройка. Данные не синхронизируются (см. ADR-001).
+The app stores locally: session history (messages + metadata), agent configurations, and user settings. Requirements: no external services, macOS v1 (Intel + Apple Silicon), minimal setup. Data is not synced (see ADR-001).
 
-## Варианты
+## Options
 
-### A. SQLite (через `modernc.org/sqlite`, pure Go, без cgo)
+### A. SQLite (via `modernc.org/sqlite`, pure Go, no cgo)
 
-| Компонент | Технология                                                       |
+| Component | Technology                                                       |
 | --------- | ---------------------------------------------------------------- |
-| Хранилище | SQLite через `modernc.org/sqlite` (или `mattn/go-sqlite3` с cgo) |
+| Storage   | SQLite via `modernc.org/sqlite` (or `mattn/go-sqlite3` with cgo) |
 
-**Плюсы:**
+**Pros:**
 
-- Один файл БД — просто резервировать / переносить.
-- Атомарные транзакции → нет состояния «половины сохранено» (важно для истории).
-- Быстро даже при тысячах сообщений (без загрузки всего в память).
-- Надёжнее сериализации/десериализации вручную (JSON).
+- One DB file — easy to back up / migrate.
+- Atomic transactions → no "half-saved" state (important for history).
+- Fast even with thousands of messages (no loading everything into memory).
+- More reliable than manual (JSON) serialization/deserialization.
 
-**Минусы:**
+**Cons:**
 
-- Нужен слой миграций (даже если изначально один файл).
-- `mattn/go-sqlite3` требует cgo → осложняет сборку на CI `macos-latest`. `modernc.org/sqlite` (pure Go) избегает этого, но слегка медленнее.
+- A migration layer is needed (even if initially one file).
+- `mattn/go-sqlite3` requires cgo → complicates CI builds on `macos-latest`. `modernc.org/sqlite` (pure Go) avoids this but is slightly slower.
 
-### B. JSON-файлы
+### B. JSON files
 
-| Компонент | Технология                                                               |
-| --------- | ------------------------------------------------------------------------ |
-| Хранилище | `~/.config/interagent/` (или `~/Library/Application Support/Interagent`) |
+| Component | Technology                                                              |
+| --------- | ----------------------------------------------------------------------- |
+| Storage   | `~/.config/interagent/` (or `~/Library/Application Support/Interagent`) |
 
-**Плюсы:**
+**Pros:**
 
-- Никаких зависимостей, читается в уме.
-- Удобно для миграций вручную (редактировать файл).
+- No dependencies, readable by a human.
+- Convenient for manual migrations (edit the file).
 
-**Минусы:**
+**Cons:**
 
-- Нет атомарных обновлений → риск повредить файл (краш mid-write).
-- Рост файла истории → вся сессия в памяти при старте.
-- Сложнее версионировать схему (ручные миграции).
+- No atomic updates → risk of corrupting the file (crash mid-write).
+- History file growth → the whole session in memory at startup.
+- Harder to version the schema (manual migrations).
 
-## Критерии выбора
+## Selection criteria
 
-| Критерий           | A (SQLite)            | B (JSON)                 |
-| ------------------ | --------------------- | ------------------------ |
-| Надёжность         | ✅ (транзакции)       | ⚠️ (атомарность)         |
-| Производительность | ✅                    | ❌ (вся сессия в памяти) |
-| cgo / сборка       | ⚠️ (зависит драйвера) | ✅                       |
-| Миграции           | ⚠️ (нужен слой)       | ⚠️ (ручные)              |
-| Размер кода        | ⚠️                    | ✅ (меньше)              |
+| Criterion   | A (SQLite)            | B (JSON)                     |
+| ----------- | --------------------- | ---------------------------- |
+| Reliability | ✅ (transactions)     | ⚠️ (atomicity)               |
+| Performance | ✅                    | ❌ (whole session in memory) |
+| cgo / build | ⚠️ (driver-dependent) | ✅                           |
+| Migrations  | ⚠️ (layer needed)     | ⚠️ (manual)                  |
+| Code size   | ⚠️                    | ✅ (less)                    |
 
-## Решение
+## Decision
 
-Выбран вариант **A — SQLite** через `modernc.org/sqlite` (pure Go, без cgo) для v1, чтобы не ломать сборку Wails на CI.
+Option **A — SQLite** via `modernc.org/sqlite` (pure Go, no cgo) chosen for v1, so that Wails builds on CI are not broken.
 
-> **Уточнение (см. ADR-005):** общее правило проекта — «pure Go где возможно; cgo допустим только для whisper.cpp». Для хранилища это правило выполняется полностью: `modernc.org/sqlite` — без cgo.
+> **Clarification (see ADR-005):** the project-wide rule is "pure Go where possible; cgo allowed only for whisper.cpp". Storage fully complies: `modernc.org/sqlite` — no cgo.
 
-### Компромиссы
+### Trade-offs
 
-- Небольшой слой миграций нужен с самого начала (см. `internal/adapter/storage`).
-- При росте количества сессий — файл БД можно компактировать или архивировать вручную.
+- A small migration layer is needed from the start (see `internal/adapter/storage`).
+- As the number of sessions grows, the DB file can be compacted or archived manually.

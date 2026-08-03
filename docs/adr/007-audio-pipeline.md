@@ -1,137 +1,137 @@
-# ADR-007: Аудио-пайплайн — источники, детекция конца фразы, отмена генерации
+# ADR-007: Audio pipeline — sources, phrase end detection, generation cancellation
 
-**Дата:** 2026-08-01
-**Статус:** Предложено
-**Связанные документы:** 01-tz.md §2.1/§3/§8 (этап 3), 02-nfr.md (NFR-01, NFR-02), 04-events.md, 05-architecture.md §3, ADR-001, ADR-005, ADR-008
+**Date:** 2026-08-01
+**Status:** Proposed
+**Related documents:** 01-tz.md §2.1/§3/§8 (stage 3), 02-nfr.md (NFR-01, NFR-02), 04-events.md, 05-architecture.md §3, ADR-001, ADR-005, ADR-008
 
 ---
 
-## Контекст
+## Context
 
-Сценарий 1 (01-tz §3): программа слушает интервьюера и автоматически отвечает на его вопросы. Роли (01-tz §2.1):
+Scenario 1 (01-tz §3): the app listens to the interviewer and automatically answers their questions. Roles (01-tz §2.1):
 
-- `interviewer` — системный звук (звук собеседования/конференц-приложения), преобразованный в текст через STT;
-- `user` — голос кандидата с микрофона.
+- `interviewer` — system sound (the interview/conference app's audio), converted to text via STT;
+- `user` — the candidate's voice from the microphone.
 
-Требования:
+Requirements:
 
-- NFR-01: задержка от конца фразы до подсказки — не более 5 сек, целевая 2 сек.
-- Оба источника аудио обрабатываются локальным STT (whisper.cpp, ADR-005) — аудио никогда не покидает устройство (NFR-02).
+- NFR-01: latency from the end of a phrase to the hint — no more than 5 s, target 2 s.
+- Both audio sources are processed by local STT (whisper.cpp, ADR-005) — audio never leaves the device (NFR-02).
 
-Не решено в ТЗ: как захватывать системный звук на macOS, как определять «конец фразы», и что делать с новым вводом во время генерации ответа.
+Not decided in the spec: how to capture system sound on macOS, how to detect "end of phrase", and what to do with new input during response generation.
 
-## Варианты
+## Options
 
-### 1. Источники аудио
+### 1. Audio sources
 
-### A. Системный звук — ScreenCaptureKit (SCK) [выбран]
+### A. System sound — ScreenCaptureKit (SCK) [chosen]
 
-`SCStream` с аудио-дескриптором (`SCContentFilter` для системного аудио) — единственный способ захватить звук приложения/системы на macOS 14+. Требует разрешения на запись экрана (см. ADR-008).
+`SCStream` with an audio descriptor (`SCContentFilter` for system audio) — the only way to capture app/system audio on macOS 14+. Requires screen recording permission (see ADR-008).
 
-**Плюсы:**
+**Pros:**
 
-- Официальный способ захвата системного аудио на macOS 14+.
-- Точечный выбор приложения (только звук собеседования, без фонового шума).
-- Аудио остаётся на устройстве.
+- The official way to capture system audio on macOS 14+.
+- Precise app selection (only the interview audio, no background noise).
+- Audio stays on the device.
 
-**Минусы:**
+**Cons:**
 
-- Только macOS; нужен мостик через cgo/ObjC (в Go — через `github.com/…`-обёртки или собственный адаптер на cgo). Ограничение v1 (macOS-only).
-- Требует разрешения «Запись экрана» (UX-обработка — ADR-008).
+- macOS only; a bridge via cgo/ObjC is needed (in Go — via `github.com/…` wrappers or a custom cgo adapter). v1 constraint (macOS-only).
+- Requires the "Screen Recording" permission (UX handling — ADR-008).
 
-### B. Системный звук — виртуальный драйвер (BlackHole и т.п.)
+### B. System sound — virtual driver (BlackHole, etc.)
 
-Устанавливать виртуальный аудио-устройство и читать его как микрофон.
+Install a virtual audio device and read it like a microphone.
 
-**Минусы:**
+**Cons:**
 
-- Требует установки стороннего драйвера — неприемлемо для пользователя. Отклонено.
+- Requires installing a third-party driver — unacceptable for the user. Rejected.
 
-### C. Микрофон — нативное API (AVCaptureDevice) [выбран]
+### C. Microphone — native API (AVCaptureDevice) [chosen]
 
-Стандартный захват микрофона (`AVCaptureAudioDevice`/`AVCaptureSession` через мост). Устройства — через `AudioDevice` порт (уже есть в `internal/port/audio.go`).
+Standard microphone capture (`AVCaptureAudioDevice`/`AVCaptureSession` via a bridge). Devices — via the `AudioDevice` port (already in `internal/port/audio.go`).
 
-### 2. Детекция конца фразы (для NFR-01)
+### 2. Phrase end detection (for NFR-01)
 
-### D. Endpoint detection whisper.cpp [выбран]
+### D. whisper.cpp endpoint detection [chosen]
 
-whisper.cpp Go-биндинг (ADR-005) умеет детектировать конец фразы в стрим-режиме (`whisper_full` с параметрами endpoint/VAD). Стрим нарезается на фразы; по завершении фразы стартует пайплайн.
+The whisper.cpp Go binding (ADR-005) can detect phrase ends in stream mode (`whisper_full` with endpoint/VAD parameters). The stream is cut into phrases; on phrase completion the pipeline starts.
 
-**Плюсы:**
+**Pros:**
 
-- Уже в выбранном STT (ADR-005), без дополнительных библиотек.
-- Промежуточный текст → событие `transcription:partial` (04-events уже предусматривает).
+- Already in the chosen STT (ADR-005), no extra libraries.
+- Partial text → `transcription:partial` event (already covered by 04-events).
 
-**Минусы:**
+**Cons:**
 
-- Качество детекции зависит от VAD-модели; ложные границы возможны — компенсируется отправкой накопленного контекста в LLM.
+- Detection quality depends on the VAD model; false boundaries are possible — compensated by sending accumulated context to the LLM.
 
-### E. Пороговая энергия (RMS) в адаптере audio
+### E. Threshold energy (RMS) in the audio adapter
 
-**Минусы:**
+**Cons:**
 
-- Ненадёжно на шумном фоне; риск ложных срабатываний. Не основной механизм.
+- Unreliable on noisy backgrounds; risk of false triggers. Not the primary mechanism.
 
-### 3. Политика при новом вводе во время генерации LLM
+### 3. Policy for new input during LLM generation
 
-### F. Cancel и ответ на новый ввод [выбран]
+### F. Cancel and respond to the new input [chosen]
 
-Решение владельца (2026-08-01). При завершении новой фразы во время генерации: `LLM.Cancel()`, затем генерация ответа на свежий ввод.
+Owner's decision (2026-08-01). When a new phrase completes during generation: `LLM.Cancel()`, then generate a response to the fresh input.
 
-**Плюсы:**
+**Pros:**
 
-- Ответ всегда соответствует последнему вопросу интервьюера.
-- Не накапливается очередь → нет растущей задержки.
+- The answer always matches the interviewer's latest question.
+- No queue accumulates → no growing latency.
 
-**Минусы:**
+**Cons:**
 
-- Частично потерянная работа LLM (затраты CPU/токенов на отменённую генерацию).
+- Partially lost LLM work (CPU/token cost of the cancelled generation).
 
-### G. Очередь (FIFO)
+### G. Queue (FIFO)
 
-**Минусы:**
+**Cons:**
 
-- Задержка растёт при быстрых вопросах; ответ может устареть к моменту показа. Отклонено.
+- Latency grows with fast questions; the answer may be stale by the time it is shown. Rejected.
 
-### H. Debounce по тишине
+### H. Silence debounce
 
-**Минусы:**
+**Cons:**
 
-- Увеличивает латентность (ждём тишину). Может применяться как дополнение к D, не как основной механизм.
+- Increases latency (waiting for silence). May be used as an addition to D, not as the primary mechanism.
 
-## Критерии выбора
+## Selection criteria
 
-| Критерий              | A (SCK) | B (драйвер) | D (endpoint) | E (RMS) | F (cancel) | G (очередь) |
-| --------------------- | ------- | ----------- | ------------ | ------- | ---------- | ----------- |
-| NFR-01 (2–5 сек)      | ✅      | ⚠️          | ✅           | ⚠️      | ✅         | ⚠️          |
-| Приватность (NFR-02)  | ✅      | ✅          | ✅           | ✅      | ✅         | ✅          |
-| Удобство для польз-ля | ✅      | ❌ (уст.)   | ✅           | ✅      | ✅         | ⚠️          |
-| macOS v1              | ✅      | ⚠️          | ✅           | ✅      | ✅         | ✅          |
+| Criterion        | A (SCK) | B (driver) | D (endpoint) | E (RMS) | F (cancel) | G (queue) |
+| ---------------- | ------- | ---------- | ------------ | ------- | ---------- | --------- |
+| NFR-01 (2–5 s)   | ✅      | ⚠️         | ✅           | ⚠️      | ✅         | ⚠️        |
+| Privacy (NFR-02) | ✅      | ✅         | ✅           | ✅      | ✅         | ✅        |
+| User convenience | ✅      | ❌ (inst.) | ✅           | ✅      | ✅         | ⚠️        |
+| macOS v1         | ✅      | ⚠️         | ✅           | ✅      | ✅         | ✅        |
 
-## Решение
+## Decision
 
-- **Системный звук** (`interviewer`): захват через **ScreenCaptureKit**, выбор источника — звук конференц-приложения/системы. Требует разрешения на запись экрана (ADR-008).
-- **Микрофон** (`user`): нативное API macOS.
-- **Конец фразы:** endpoint detection в whisper.cpp (стрим). Промежуточный текст шлётся `transcription:partial`, финальный — `transcription:done` → запуск пайплайна.
-- **Новый ввод во время генерации:** **Cancel** текущей генерации (`LLM.Cancel()` → событие `llm:cancelled`) и запуск генерации на свежий ввод.
+- **System sound** (`interviewer`): capture via **ScreenCaptureKit**, source selection — the conference app/system audio. Requires screen recording permission (ADR-008).
+- **Microphone** (`user`): native macOS API.
+- **Phrase end:** endpoint detection in whisper.cpp (stream). Partial text is sent via `transcription:partial`, final — via `transcription:done` → pipeline start.
+- **New input during generation:** **Cancel** the current generation (`LLM.Cancel()` → `llm:cancelled` event) and start generation on the fresh input.
 
-### Пайплайн аудио (этап 3)
+### Audio pipeline (stage 3)
 
 ```
 AudioInput (SCK / mic) → STT whisper.cpp (endpoint detection)
     → transcription:partial (throttled) / transcription:done
-    → SendText(text, role) → LLM (cancel при новом вводе) → llm:response
+    → SendText(text, role) → LLM (cancel on new input) → llm:response
 ```
 
-### Роли в истории
+### Roles in history
 
-- `transcription:done` из системного звука → `Message.Role = "interviewer"`.
-- `transcription:done` из микрофона → `Message.Role = "user"`.
-- Ответ LLM → `Message.Role = "assistant"`.
+- `transcription:done` from system sound → `Message.Role = "interviewer"`.
+- `transcription:done` from microphone → `Message.Role = "user"`.
+- LLM response → `Message.Role = "assistant"`.
 
-## Компромиссы
+## Trade-offs
 
-- ScreenCaptureKit — только macOS (ок для v1); при порте на Windows — аналог (WASAPI loopback) в отдельном ADR.
-- Захват системного звука требует разрешения «Запись экрана» — обработка отказа пользователем в ADR-008.
-- Cancel генерации теряет работу предыдущего запроса — приемлемо для UX интервью.
-- Endpoint detection может ошибаться — ошибки распознавания обрабатываются по NFR-06 (пользователь видит сообщение и может повторить).
+- ScreenCaptureKit is macOS-only (fine for v1); when porting to Windows — an equivalent (WASAPI loopback) in a separate ADR.
+- Capturing system sound requires the "Screen Recording" permission — user denial handling in ADR-008.
+- Cancelling generation loses the previous request's work — acceptable for the interview UX.
+- Endpoint detection can make mistakes — recognition errors are handled per NFR-06 (the user sees a message and can retry).

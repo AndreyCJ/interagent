@@ -1,39 +1,49 @@
-import type { AgentConfig, AppSettings, AudioDevice, Session, Shortcut } from '../types/api.types'
+export {
+  GetAgents,
+  GetActiveAgent,
+  SetActiveAgent,
+  SaveAgent,
+  DeleteAgent,
+} from '../../../wailsjs/go/main/AgentBind'
 
-// Session
-export declare function NewSession(): Promise<Session>
-export declare function GetSession(): Promise<Session>
-export declare function ClearSession(): Promise<void>
+export {
+  GetAudioDevices,
+  IsListening,
+  SetAudioDevice,
+  StartListening,
+  StopListening,
+} from '../../../wailsjs/go/main/AudioBind'
 
-// Audio
-export declare function StartListening(): Promise<void>
-export declare function StopListening(): Promise<void>
-export declare function IsListening(): Promise<boolean>
-export declare function GetAudioDevices(): Promise<AudioDevice[]>
-export declare function SetAudioDevice(id: string): Promise<void>
+export { GetVersion, Quit } from '../../../wailsjs/go/main/App'
 
-// Screenshot
-export declare function CaptureFullScreen(): Promise<void>
-export declare function CaptureRegion(): Promise<void>
-export declare function CaptureAndOCR(region?: string): Promise<string>
+export { CancelResponse, SendText } from '../../../wailsjs/go/main/LLMBind'
 
-// LLM
-export declare function SendText(text: string): Promise<void>
-export declare function CancelResponse(): Promise<void>
+export {
+  CaptureAndOCR,
+  CaptureFullScreen,
+  CaptureRegion,
+} from '../../../wailsjs/go/main/ScreenshotBind'
 
-// Agents
-export declare function GetAgents(): Promise<AgentConfig[]>
-export declare function GetActiveAgent(): Promise<AgentConfig>
-export declare function SetActiveAgent(id: string): Promise<void>
-export declare function SaveAgent(cfg: AgentConfig): Promise<AgentConfig>
-export declare function DeleteAgent(id: string): Promise<void>
+export { ClearSession, GetSession, NewSession } from '../../../wailsjs/go/main/SessionBind'
 
-// Settings
-export declare function GetSettings(): Promise<AppSettings>
-export declare function SaveSettings(s: AppSettings): Promise<void>
-export declare function GetShortcuts(): Promise<Shortcut[]>
-export declare function UpdateShortcut(id: string, keys: string[]): Promise<void>
+export {
+  GetSettings,
+  GetShortcuts,
+  SaveSettings,
+  UpdateShortcut,
+} from '../../../wailsjs/go/main/SettingsBind'
 
-// App
-export declare function GetVersion(): Promise<string>
-export declare function Quit(): Promise<void>
+export {
+  GetOverlayMode,
+  HideOverlay,
+  SetOverlayMode,
+  ShowOverlay,
+} from '../../../wailsjs/go/main/OverlayBind'
+
+export { RegisterHotkey, UnregisterHotkey } from '../../../wailsjs/go/main/HotkeysBind'
+
+export {
+  GetPermissionStatus,
+  OpenPermissionSettings,
+  RequestPermission,
+} from '../../../wailsjs/go/main/PermissionsBind'

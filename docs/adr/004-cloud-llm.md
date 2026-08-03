@@ -1,96 +1,96 @@
-# ADR-004: Облачный LLM (OpenAI-совместимые провайдеры) и хранение ключей
+# ADR-004: Cloud LLM (OpenAI-compatible providers) and key storage
 
-**Дата:** 2026-08-01
-**Статус:** Принято
-**Связанные документы:** 01-tz.md §2/§6/§8, 02-nfr.md (NFR-02, NFR-11), 05-architecture.md §3, ADR-005 (расширение порта LLM под изображения). Типы AgentConfig — в коде: `internal/port/types.go`.
+**Date:** 2026-08-01
+**Status:** Accepted
+**Related documents:** 01-tz.md §2/§6/§8, 02-nfr.md (NFR-02, NFR-11), 05-architecture.md §3, ADR-005 (LLM port extension for images). AgentConfig types — in code: `internal/port/types.go`.
 
 ---
 
-## Контекст
+## Context
 
-STT остаётся локальным (whisper.cpp — см. ADR-001). Но качество локальных LLM (3–8B) уступает облачным, особенно на сложных задачах. Пользователь хочет иметь выбор: иногда отдать предпочтение скорости и качеству облачному LLM, иногда — приватности локальному.
+STT stays local (whisper.cpp — see ADR-001). But the quality of local LLMs (3–8B) is inferior to cloud ones, especially on complex tasks. The user wants a choice: sometimes prefer the speed and quality of a cloud LLM, sometimes the privacy of a local one.
 
-Требования:
+Requirements:
 
-- Облачный LLM — только OpenAI-совместимые эндпоинты (OpenAI, Groq, LM Studio, Ollama remote, vLLM и др.). Нативные провайдеры (Anthropic) — не v1.
-- `apiKey` должен храниться локально и **зашифрован**.
-- Отправка текста в облако — **только при явном включении** пользователем, с визуальной индикацией.
-- Аудио и скриншоты никогда не уходят в сеть (см. NFR-02).
+- Cloud LLM — only OpenAI-compatible endpoints (OpenAI, Groq, LM Studio, Ollama remote, vLLM, etc.). Native providers (Anthropic) — not v1.
+- `apiKey` must be stored locally and **encrypted**.
+- Sending text to the cloud — **only when explicitly enabled** by the user, with visual indication.
+- Audio and screenshots never go to the network (see NFR-02).
 
-## Варианты
+## Options
 
-### A. Универсальный OpenAI-compatible клиент (Recommended)
+### A. Universal OpenAI-compatible client (Recommended)
 
-Один HTTP-адаптер `adapter/llm/openai.go`, параметры: `baseUrl`, `model`, `apiKey`. Люой OpenAI-совместимый сервис — через настройку baseUrl.
+One HTTP adapter `adapter/llm/openai.go`, parameters: `baseUrl`, `model`, `apiKey`. Any OpenAI-compatible service — via the `baseUrl` setting.
 
-**Плюсы:**
+**Pros:**
 
-- Один код для всех совместимых провайдеров (OpenAI, Groq, LM Studio, Ollama, vLLM, DeepSeek и т.д.).
-- Просто расширяется: новая модель — это `model` + `baseUrl`, без нового кода.
-- Минимум кода, минимум surface area для багов.
+- One code path for all compatible providers (OpenAI, Groq, LM Studio, Ollama, vLLM, DeepSeek, etc.).
+- Easily extensible: a new model is `model` + `baseUrl`, no new code.
+- Minimal code, minimal surface area for bugs.
 
-**Минусы:**
+**Cons:**
 
-- Нельзя подстроиться под провайдер-специфичные фичи (formatters, tool-calling-специфика).
+- Cannot adapt to provider-specific features (formatters, tool-calling specifics).
 
-### B. Отдельный адаптер на каждого провайдера
+### B. A separate adapter per provider
 
-`openai.go`, `anthropic.go`, `gemini.go` — каждый со своей структурой запросов.
+`openai.go`, `anthropic.go`, `gemini.go` — each with its own request structure.
 
-**Плюсы:**
+**Pros:**
 
-- Доступ к провайдер-специфичным возможностям.
+- Access to provider-specific capabilities.
 
-**Минусы:**
+**Cons:**
 
-- Сложнее поддерживать и тестировать.
-- v1 не нуждается в Anthropic/Gemini (пользователь просил free-модели и OpenAI-совместимые).
+- Harder to maintain and test.
+- v1 does not need Anthropic/Gemini (the user asked for free models and OpenAI-compatible ones).
 
-### C. Только локальный LLM
+### C. Local LLM only
 
-Отказаться от облака вовсе.
+Give up the cloud entirely.
 
-**Минусы:**
+**Cons:**
 
-- Ограничивает сценарий: качество локальных LLM хуже; пользователь вынужден скачивать модели.
+- Limits the scenario: local LLM quality is worse; the user is forced to download models.
 
-## Критерии выбора
+## Selection criteria
 
-| Критерий            | A (OpenAI-compatible)     | B (per-provider) | C (локально) |
-| ------------------- | ------------------------- | ---------------- | ------------ |
-| Покрытие v1         | ✅ (все free-совместимые) | ✅               | ❌           |
-| Скорость реализации | ✅                        | ❌               | ✅           |
-| Поддержка Anthropic | ❌ (добавится позже)      | ✅               | ❌           |
-| Простота кода       | ✅                        | ❌               | ✅           |
+| Criterion            | A (OpenAI-compatible)    | B (per-provider) | C (local) |
+| -------------------- | ------------------------ | ---------------- | --------- |
+| v1 coverage          | ✅ (all free-compatible) | ✅               | ❌        |
+| Implementation speed | ✅                       | ❌               | ✅        |
+| Anthropic support    | ❌ (added later)         | ✅               | ❌        |
+| Code simplicity      | ✅                       | ❌               | ✅        |
 
-## Решение
+## Decision
 
-Выбран вариант **A — универсальный OpenAI-compatible адаптер**.
+Option **A — universal OpenAI-compatible adapter** chosen.
 
-### Как хранить apiKey
+### How to store apiKey
 
-- В SQLite (см. ADR-003) **только в зашифрованном виде** (AES-256-GCM).
-- Мастер-ключ шифрования хранится в **macOS Keychain** (служба `com.interagent.keys`, аккаунт `master`).
-- При первом запуске мастер-ключ генерируется случайно и сохраняется в Keychain.
-- `apiKey` в `AppSettings` / `AgentConfig` — всегда `ciphertext`, **никогда в plaintext**.
+- In SQLite (see ADR-003) **only encrypted** (AES-256-GCM).
+- The encryption master key is stored in **macOS Keychain** (service `com.interagent.keys`, account `master`).
+- On first launch the master key is generated randomly and saved to Keychain.
+- `apiKey` in `AppSettings` / `AgentConfig` is always `ciphertext`, **never plaintext**.
 
-### Модель согласия (NFR-02)
+### Consent model (NFR-02)
 
-- Провайдер выбирается **на уровне агента** (`AgentConfig.provider = "openai-compatible"` + `apiKey` + `baseUrl`).
-- При **первом** включении облачного провайдера — модальное предупреждение: «Текст транскрипции и OCR, а также скриншоты (если выбран режим отправки изображения в модель) будут отправляться в выбранный вами endpoint. Аудио никогда не уходит с устройства». Подтверждение — `OK`.
-- Пока активен облачный провайдер — в оверлее **всегда** показывается индикатор (например, «☁️» рядом с моделью). Если активен direct-image режим скриншотов (multimodal, ADR-005) — индикатор также показывает, что изображения уходят в облако.
-- Отключить облачный режим можно только через настройки агента.
+- The provider is chosen **at the agent level** (`AgentConfig.provider = "openai-compatible"` + `apiKey` + `baseUrl`).
+- On the **first** enabling of a cloud provider — a modal warning: "Transcription and OCR text, as well as screenshots (if the mode of sending images to the model is enabled), will be sent to the endpoint you choose. Audio never leaves the device." Confirmation — `OK`.
+- While a cloud provider is active — an indicator is **always** shown in the overlay (e.g., "☁️" next to the model). If direct-image screenshot mode is active (multimodal, ADR-005) — the indicator also shows that images go to the cloud.
+- Cloud mode can only be disabled through the agent settings.
 
-### Что уходит в сеть
+### What goes to the network
 
-| Данные                     | Уходит?                                                                       | Когда                             |
-| -------------------------- | ----------------------------------------------------------------------------- | --------------------------------- |
-| Аудио (PCM/микрофон/сист.) | ❌ Никогда                                                                    | —                                 |
-| Скриншот (изображение)     | ✅ Только если `provider = openai-compatible` **и** выбран direct-image режим | → `baseUrl` выбранного провайдера |
-| Текст (транскрипция / OCR) | ✅ Только если `provider = openai-compatible`                                 | → `baseUrl` выбранного провайдера |
+| Data                       | Leaves?                                                                      | When                               |
+| -------------------------- | ---------------------------------------------------------------------------- | ---------------------------------- |
+| Audio (PCM/mic/system)     | ❌ Never                                                                     | —                                  |
+| Screenshot (image)         | ✅ Only if `provider = openai-compatible` **and** direct-image mode selected | → `baseUrl` of the chosen provider |
+| Text (transcription / OCR) | ✅ Only if `provider = openai-compatible`                                    | → `baseUrl` of the chosen provider |
 
-## Компромиссы
+## Trade-offs
 
-- Нативные облачные провайдеры (Anthropic, Google) — не v1. Добавим позже, если потребуется.
-- При облачном провайдере latency/CPU/RAM зависят от сети и стороннего сервиса — см. NFR-01/03/07 (обновлены).
-- Хранение мастер-ключа в Keychain связывает шифрование с одной учётной записью macOS.
+- Native cloud providers (Anthropic, Google) — not v1. We will add them later if needed.
+- With a cloud provider, latency/CPU/RAM depend on the network and a third-party service — see NFR-01/03/07 (updated).
+- Storing the master key in Keychain ties encryption to a single macOS account.
