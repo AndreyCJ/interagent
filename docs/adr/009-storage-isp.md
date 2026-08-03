@@ -1,44 +1,44 @@
-# ADR-009: Узкие интерфейсы хранилища (ISP)
+# ADR-009: Narrow storage interfaces (ISP)
 
-**Дата:** 2026-08-01
-**Статус:** ✅ Принято
-**Связанные документы:** 05-architecture.md (таблица портов), 003-storage.md, 00-documentation-map.md, `internal/port/storage.go`
+**Date:** 2026-08-01
+**Status:** ✅ Accepted
+**Related documents:** 05-architecture.md (ports table), 003-storage.md, 00-documentation-map.md, `internal/port/storage.go`
 
 ---
 
-## Контекст
+## Context
 
-`port.Storage` был одним монолитным интерфейсом: CRUD для Session, Agents и Settings сразу. Из-за этого каждый usecase (Session, Agent, Settings) формально зависел от всех трёх доменных областей хранилища, а тестовые моки вынуждены были реализовывать 9 методов, из которых реально использовались 2–3. Триггером стала проверка Этапа 1: в ревью контракт-тестов встал вопрос «почему мок агентов реализует CreateSession/GetSettings», — ответ: монолитный интерфейс заставляет.
+`port.Storage` was one monolithic interface: CRUD for Session, Agents, and Settings at once. Because of this, every usecase (Session, Agent, Settings) formally depended on all three storage domains, and test mocks were forced to implement 9 methods of which only 2–3 were actually used. The trigger was a Stage-1 check: in the contract-test review the question arose "why does the agents mock implement CreateSession/GetSettings" — the answer: the monolithic interface forces it.
 
-## Варианты
+## Options
 
-### A. Монолитный `Storage`
+### A. Monolithic `Storage`
 
-Плюсы: один интерфейс, минимум типов.
-Минусы: usecase зависит от лишнего; моки раздуваются no-op методами; нарушение принципа интерфейсной сегрегации (ISP) и принципа «чистых зависимостей» (05-architecture).
+Pros: one interface, minimal types.
+Cons: the usecase depends on extra stuff; mocks bloat with no-op methods; violates the interface segregation principle (ISP) and the "clean dependencies" principle (05-architecture).
 
-### B. Три узких интерфейса
+### B. Three narrow interfaces
 
 `SessionStorage`, `AgentStorage`, `SettingsStorage`.
 
-Плюсы: usecase зависит только от нужного; моки минимальны (2–3 метода); реальный адаптер (SQLite) реализует все три без дополнительной стоимости.
-Минусы: больше типов; при появлении кросс-доменных операций (например, «удалить всё по сессии») понадобится композиция интерфейсов.
+Pros: the usecase depends only on what it needs; mocks are minimal (2–3 methods); the real adapter (SQLite) implements all three at no extra cost.
+Cons: more types; if cross-domain operations appear (e.g., "delete everything for a session"), interface composition will be needed.
 
-## Критерии выбора
+## Selection criteria
 
-| Критерий                   | A (монолит) | B (узкие) |
-| -------------------------- | ----------- | --------- |
-| ISP / чистота зависимостей | ❌          | ✅        |
-| Простота тестовых моков    | ⚠️          | ✅        |
-| Количество типов           | ✅          | ⚠️        |
-| Адаптер SQLite             | ✅          | ✅        |
+| Criterion                    | A (monolith) | B (narrow) |
+| ---------------------------- | ------------ | ---------- |
+| ISP / dependency cleanliness | ❌           | ✅         |
+| Test mock simplicity         | ⚠️           | ✅         |
+| Number of types              | ✅           | ⚠️         |
+| SQLite adapter               | ✅           | ✅         |
 
-## Решение
+## Decision
 
-Выбран вариант **B** — три узких интерфейса `SessionStorage`, `AgentStorage`, `SettingsStorage` в `internal/port/storage.go`. Usecase-конструкторы принимают только нужный интерфейс.
+Option **B** chosen — three narrow interfaces `SessionStorage`, `AgentStorage`, `SettingsStorage` in `internal/port/storage.go`. Usecase constructors accept only the needed interface.
 
-## Компромиссы
+## Trade-offs
 
-- Появилось три интерфейса вместо одного; адаптер хранилища будет реализовывать все три (композиция в одном типе).
-- Технология хранилища не меняется (SQLite, ADR-003).
-- Если позже появится операция, работающая сразу с несколькими доменами, — добавится композиция интерфейсов (без изменения существующих).
+- Three interfaces instead of one; the storage adapter implements all three (composition in a single type).
+- Storage technology is unchanged (SQLite, ADR-003).
+- If an operation working across several domains appears later — interface composition will be added (without changing existing ones).

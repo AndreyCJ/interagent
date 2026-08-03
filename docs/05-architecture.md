@@ -1,59 +1,59 @@
 # Architecture
 
-**Дата:** 2026-07-30
-**Статус:** Утверждён
+**Date:** 2026-07-30
+**Status:** Approved
 
 ---
 
-## 1. Принципы
+## 1. Principles
 
-- **Clean / Hexagonal.** `adapter → port ← usecase ← bind ← frontend`. Слои направлены одинаково.
-- **Bind — только диспетчер.** `bind_*.go` принимает вызовы фронта, вызывает `usecase`, шлёт events. Ничего не знает про адаптеры.
-- **Замена адаптера без боли.** `internal/port/` — интерфейсы. `usecase` работает через них.
-- **Тестируемость.** `usecase` тестируется с моками адаптеров. Адаптеры — интеграционно.
-- **ADR-001/005 обязательны.** STT — только локальный (whisper.cpp, cgo-биндинг). LLM — локальный (llama.go, pure Go) или облачный OpenAI-compatible по выбору (ADR-004); apiKey зашифрован (NFR-11).
-- **Feature-first фронтенд.** Каждая фича в своей папке `frontend/features/<name>/`.
+- **Clean / Hexagonal.** `adapter → port ← usecase ← bind ← frontend`. Layers point in the same direction.
+- **Bind — only a dispatcher.** `bind_*.go` receives frontend calls, calls `usecase`, sends events. Knows nothing about adapters.
+- **Adapter replacement without pain.** `internal/port/` — interfaces. `usecase` works through them.
+- **Testability.** `usecase` is tested with adapter mocks. Adapters — integrationally.
+- **ADR-001/005 mandatory.** STT — local only (whisper.cpp, cgo binding). LLM — local (llama.go, pure Go) or cloud OpenAI-compatible, user's choice (ADR-004); apiKey encrypted (NFR-11).
+- **Feature-first frontend.** Each feature lives in its own folder `frontend/features/<name>/`.
 
 ---
 
-## 2. Слои и зависимости
+## 2. Layers and dependencies
 
-Стек — три слоя в одном направлении зависимостей (`adapter → port ← usecase ← bind ← frontend`):
+The stack is three layers in one dependency direction (`adapter → port ← usecase ← bind ← frontend`):
 
 **1. Frontend (`frontend/`)**
 
-Архитектура фронтенда организована по методологии FEOD (Fractal Entity Oriented Design).
+The frontend architecture follows the FEOD methodology (Fractal Entity Oriented Design).
 
-- `app/` - сущность приложения, которая описывает всё, что необходимо для запуска приложения и его настройки. Здесь находятся ключевые вещи, которые нужны только для запуска самого приложения.
-- `features/<name>/` - фича является уникальным, переиспользуемым модулем. Модули должны быть изолированы друг от друга настолько, насколько это возможно. Доступ к внутренностям модуля возможен только через публичный API. Внутри модули могут иметь свои типы, сторы, композаблы и тд.
-- `common/` - уровень, определяющий сущности для общего переиспользования. Это сущности, которые не привязаны к конкретной бизнес-логике и могут использоваться в любом месте проекта. А также одиночные сущности которые сложно причислить к какому-то конкретному модулю.
+- `app/` — the app entity that describes everything needed to launch the app and configure it. This is where the key things needed only to run the app itself live.
+- `features/<name>/` — a feature is a unique, reusable module. Modules must be isolated from each other as much as possible. Access to a module's internals is possible only through its public API. Inside, modules can have their own types, stores, composables, etc.
+- `common/` — the level defining entities for shared reuse. These are entities not tied to specific business logic that can be used anywhere in the project. Also standalone entities that are hard to attribute to a specific module.
 
-Типы данных: `frontend/src/common/types/api.types.ts` (зеркало Go-типов).
+Data types: `frontend/src/common/types/api.types.ts` (mirror of the Go types).
 
-Контракт событий backend → frontend: `docs/04-events.md`.
+Event contract backend → frontend: `docs/04-events.md`.
 
-**Правило зависимостей:**
+**Dependency rules:**
 
-- app - не может быть импортирован и является входной точкой в приложение
-- common - может быть импортирован на любом уровне
-- features - могут быть импортированы app
+- app — cannot be imported and is the entry point of the app
+- common — can be imported at any level
+- features — can be imported by app
 
-Цепочка зависимостей фронтенда - `common ➜ features ➜ app`
+Frontend dependency chain — `common ➜ features ➜ app`
 
-**2. Bridge: Wails (`frontend/wailsjs/`)** — сгенерированные биндинги (`wails generate`). Frontend вызывает Go-методы синхронно, результаты асинхронных операций приходят событиями.
+**2. Bridge: Wails (`frontend/wailsjs/`)** — generated bindings (`wails generate`). The frontend calls Go methods synchronously, results of async operations arrive as events.
 
 **3. Backend (Go):**
 
-- `bind.go / bind_*.go` — слой доставки. Принимает вызовы фронта, делегирует в `usecase`, шлёт события. Про адаптеры не знает.
-- `internal/usecase` — бизнес-логика. Зависит только от `internal/port`.
-- `internal/port` — интерфейсы и типы данных, без внешних зависимостей.
-- `internal/adapter/*` — реализации портов: `audio/` (микрофон + системный звук + STT), `llm/` (локальный llama.go + openai-compatible облако), `screenshot/` (захват + OCR), `storage/` (SQLite), `window/` (overlay), `hotkeys/`, `system/` (разрешения macOS).
+- `bind.go / bind_*.go` — delivery layer. Receives frontend calls, delegates to `usecase`, sends events. Knows nothing about adapters.
+- `internal/usecase` — business logic. Depends only on `internal/port`.
+- `internal/port` — interfaces and data types, no external dependencies.
+- `internal/adapter/*` — port implementations: `audio/` (microphone + system sound + STT), `llm/` (local llama.go + openai-compatible cloud), `screenshot/` (capture + OCR), `storage/` (SQLite), `window/` (overlay), `hotkeys/`, `system/` (macOS permissions).
 
-**Правило зависимостей:** `adapter → port ← usecase ← bind ← frontend`. Кольцевых зависимостей нет. `port` не зависит от реализаций. Изменить порт (интерфейс) — меняется и `usecase`, и все адаптеры: делается через ADR.
+**Dependency rule:** `adapter → port ← usecase ← bind ← frontend`. No circular dependencies. `port` does not depend on implementations. Changing a port (interface) — both `usecase` and all adapters change: done via ADR.
 
-### Порты (интерфейсы)
+### Ports (interfaces)
 
-| Интерфейс         | Методы                                                  | Где определён                  |
+| Interface         | Methods                                                 | Defined in                     |
 | ----------------- | ------------------------------------------------------- | ------------------------------ |
 | `AudioInput`      | Start, Stop, Devices, SetDevice                         | `internal/port/audio.go`       |
 | `STT`             | Transcribe(audioData) → (text, confidence)              | `internal/port/audio.go`       |
@@ -68,75 +68,75 @@
 | `Permissions`     | Status, Request, OpenSettings                           | `internal/port/permissions.go` |
 | `Events`          | Emit(name, payload)                                     | `internal/port/events.go`      |
 
-`Overlay`, `Hotkeys`, `Permissions` заведены в ADR-006 / ADR-008 — они нужны сразу для TDD-тестов этапа 2 (поведение оверлея, click-through, шорткаты) и для обработки macOS-разрешений. `LLM.Complete` принимает `input { text, image? }` — multimodal (ADR-005).
+`Overlay`, `Hotkeys`, `Permissions` are introduced in ADR-006 / ADR-008 — they are needed right away for the stage-2 TDD tests (overlay behavior, click-through, shortcuts) and for handling macOS permissions. `LLM.Complete` accepts `input { text, image? }` — multimodal (ADR-005).
 
-> **Overlay** — окно моделируется как порт (ADR-006): `Show/Hide/Toggle/SetMode/GetMode`. Реализация — Wails + платформенные вызовы в `adapter/window`. Тестируется usecase-слой с моками.
+> **Overlay** — the window is modeled as a port (ADR-006): `Show/Hide/Toggle/SetMode/GetMode`. Implementation — Wails + platform calls in `adapter/window`. Tested at the usecase layer with mocks.
 
-> **События** — асинхронный канал `usecase → frontend` через порт `Events` (`Emit`), реализация на Wails находится в `adapter/events` (обёб-тка над `runtime.EventsEmit`, см. ADR-010). Usecase эмитят события из `04-events.md`, адресата (фронтенд) не знают: транспортная деталь.
+> **Events** — async channel `usecase → frontend` through the `Events` port (`Emit`), Wails implementation in `adapter/events` (wrapper over `runtime.EventsEmit`, see ADR-010). Usecases emit events from `04-events.md` without knowing the recipient (frontend): a transport detail.
 
-> **Источники правды.** Типы данных и bind-методы живут в коде: Go — `internal/port/types.go` (там же зеркалятся типы, пересекающиеся с фронтендом: Message, Session, AgentConfig, AppSettings, Shortcut, AudioDevice; режимы и события — константы/интерфейсы в `internal/port/{overlay,hotkeys,permissions,events}.go`), TS — `frontend/src/common/types/api.types.ts`, биндинги генерируются `wails generate`. Документально описан только контракт рантайм-событий: `docs/04-events.md`.
-
----
-
-## 3. Общий пайплайн (один паттерн для всех входов)
-
-Все сценарии сводятся к одной цепочке: **Input → Enrich → LLM → Render**.
-
-| Шаг | Что | Кто | Где |
-| --------- | ------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------- | --- |
-| 1. Input | Поступление инпута (текст, STT, скриншот) | frontend / bind | Этап 2 / 3 / 4 |
-| 2. Enrich | (опционально) STT / OCR преобразуют media → текст | adapter: audio/stt, screenshot/ocr | |
-| 3. LLM | `LLM.Complete(input, history)` → string | usecase → port.LLM → adapter:llm (local: llama.go | cloud: openai-compatible) — выбор по `AgentConfig.provider` | |
-| 4. Render | Вывод ответа в оверлей + запись в историю | frontend → bind (event `llm:response`) | |
-| Ошибка | `app:error { stage, error }` + локальный лог | любой слой | NFR-06, NFR-09 |
-
-**Ручной ввод (Этап 2).** `frontend → SendText(text) → bind → usecase LLM.Complete → llm:started / llm:response` (через порт `Events`). Usecase пополняет историю текущей сессии (`user` + `assistant`); `llm:error` — без падения (NFR-06).
-
-**Аудио (Этап 3).** `StartListening → AudioInput (микрофон / системный звук SCK) → STT (whisper.cpp, endpoint detection) → transcription:done → SendText → LLM → llm:response`. При новом вводе во время генерации — cancel и генерация на свежий ввод (ADR-007).
-
-**Скриншот (Этап 4) — два пути:**
-
-- **OCR:** `CaptureFullScreen/Region → ScreenCapture → OCR → ocr:done → SendText → LLM → llm:response` (текст).
-- **Multimodal (direct-image):** `CaptureFullScreen/Region → SendImage({base64, format}) → LLM.Complete(input{text, image}) → llm:response` (скриншот как есть, ADR-005).
-
-Инференс: **STT локальный** (whisper.cpp через cgo-биндинг, ADR-005); **LLM — гибрид** (llama.go локально или OpenAI-compatible облако по выбору пользователя); OCR — Apple Vision (см. ADR-001, ADR-002, ADR-003, ADR-004, ADR-005).
+> **Sources of truth.** Data types and bind methods live in code: Go — `internal/port/types.go` (types overlapping with the frontend are mirrored there: Message, Session, AgentConfig, AppSettings, Shortcut, AudioDevice; modes and events — constants/interfaces in `internal/port/{overlay,hotkeys,permissions,events}.go`), TS — `frontend/src/common/types/api.types.ts`, bindings generated by `wails generate`. Only the runtime events contract is documented: `docs/04-events.md`.
 
 ---
 
-## 4. Окно (overlay)
+## 3. Common pipeline (one pattern for all inputs)
 
-Это ядро продукта. Моделируется портом `Overlay` (ADR-006), реализуется в `adapter/window` + `bind`/`frontend`:
+All scenarios reduce to a single chain: **Input → Enrich → LLM → Render**.
 
-- **always-on-top** — окно поверх всех окон (включая fullscreen).
-- **click-through по умолчанию** — мышь и клавиатура проходят сквозь окно (NFR-04).
-- **кликабельный режим** — переключается глобальным шорткатом (по умолчанию `Cmd+Shift+Space`), в нём доступен ручной ввод и настройки. Режим отражается событием `overlay:mode` (ADR-006).
-- **одно окно** — мультимониторные конфигурации out of scope для v1 (01-tz §7).
-- **прозрачность / темы** — `AppSettings.theme ∈ {dark, light, transparent}`.
+| Step      | What                                                | Who                                               | Where                                                        |
+| --------- | --------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------ |
+| 1. Input  | Input arrival (text, STT, screenshot)               | frontend / bind                                   | Stage 2 / 3 / 4                                              |
+| 2. Enrich | (optional) STT / OCR convert media → text           | adapter: audio/stt, screenshot/ocr                |                                                              |
+| 3. LLM    | `LLM.Complete(input, history)` → string             | usecase → port.LLM → adapter:llm (local: llama.go | cloud: openai-compatible) — choice by `AgentConfig.provider` |
+| 4. Render | Output the answer to the overlay + write to history | frontend → bind (event `llm:response`)            |                                                              |
+| Error     | `app:error { stage, error }` + local log            | any layer                                         | NFR-06, NFR-09                                               |
+
+**Manual input (Stage 2).** `frontend → SendText(text) → bind → usecase LLM.Complete → llm:started / llm:response` (through the `Events` port). The usecase appends to the current session history (`user` + `assistant`); `llm:error` — without crashing (NFR-06).
+
+**Audio (Stage 3).** `StartListening → AudioInput (microphone / system sound SCK) → STT (whisper.cpp, endpoint detection) → transcription:done → SendText → LLM → llm:response`. On new input during generation — cancel and generate on the fresh input (ADR-007).
+
+**Screenshot (Stage 4) — two paths:**
+
+- **OCR:** `CaptureFullScreen/Region → ScreenCapture → OCR → ocr:done → SendText → LLM → llm:response` (text).
+- **Multimodal (direct-image):** `CaptureFullScreen/Region → SendImage({base64, format}) → LLM.Complete(input{text, image}) → llm:response` (screenshot as-is, ADR-005).
+
+Inference: **STT local** (whisper.cpp via cgo binding, ADR-005); **LLM — hybrid** (llama.go locally or OpenAI-compatible cloud, user's choice); OCR — Apple Vision (see ADR-001, ADR-002, ADR-003, ADR-004, ADR-005).
 
 ---
 
-## 5. Ошибки
+## 4. Window (overlay)
 
-- **Политика.** Ошибка адаптера (STT/LLM/OCR/Storage timeout, panic, невалидный ответ, HTTP-ошибка облачного LLM) **не роняет приложение**. usecase возвращает ошибку → bind шлёт `app:error { stage, error }` фронту.
-- **Облако.** Таймаут/4xx/5xx облачного LLM (NFR-06) → fallback на локальный LLM, если он доступен; иначе — сообщение в оверлее.
-- **Поведение.** На любой ошибке фронтенд показывает в оверлее понятное сообщение и возможность повторить (NFR-06).
-- **Логирование.** Все ошибки → локальный лог `timestamp, stage, context` (NFR-09). Пользователь может экспортировать лог. Без телеметрии (opt-in — out of scope v1).
+This is the core of the product. Modeled as the `Overlay` port (ADR-006), implemented in `adapter/window` + `bind`/`frontend`:
+
+- **always-on-top** — the window is above all windows (including fullscreen).
+- **click-through by default** — mouse and keyboard pass through the window (NFR-04).
+- **interactive mode** — toggled by a global shortcut (default `Cmd+Shift+Space`), manual input and settings are available in it. The mode is reflected by the `overlay:mode` event (ADR-006).
+- **single window** — multi-monitor configurations are out of scope for v1 (01-tz §7).
+- **transparency / themes** — `AppSettings.theme ∈ {dark, light, transparent}`.
 
 ---
 
-## 6. Хранилище
+## 5. Errors
 
-- Вся сущность (история сессий, агенты, настройки, зашифрованные apiKey) — локально, на устройстве. Никуда не синхронится.
-- Технология хранилища — SQLite (pure-Go, без cgo), см. ADR-003.
-- `apiKey` хранится зашифрованным (AES-256-GCM, NFR-11); мастер-ключ — в macOS Keychain (ADR-004).
+- **Policy.** An adapter error (STT/LLM/OCR/Storage timeout, panic, invalid response, HTTP error of the cloud LLM) **does not bring down the app**. The usecase returns an error → bind sends `app:error { stage, error }` to the frontend.
+- **Cloud.** Timeout/4xx/5xx of the cloud LLM (NFR-06) → fallback to the local LLM if available; otherwise — a message in the overlay.
+- **Behavior.** On any error the frontend shows a clear message in the overlay and a retry option (NFR-06).
+- **Logging.** All errors → local log `timestamp, stage, context` (NFR-09). The user can export the log. No telemetry (opt-in — out of scope for v1).
+
+---
+
+## 6. Storage
+
+- All entity data (session history, agents, settings, encrypted apiKey) — locally, on the device. Not synced anywhere.
+- Storage technology — SQLite (pure-Go, no cgo), see ADR-003.
+- `apiKey` is stored encrypted (AES-256-GCM, NFR-11); the master key — in macOS Keychain (ADR-004).
 
 ---
 
 ## 7. Out of scope (v1)
 
-- Облачный STT (облачный whisper) — не v1 (STT только локальный, ADR-001).
-- Нативные облачные LLM-провайдеры (Anthropic, Gemini) — не v1; только OpenAI-compatible (ADR-004).
-- Windows / Linux (первая версия — только macOS).
-- Мультимониторные конфигурации.
-- Телеметрия (опционально, opt-in).
-- Автообновление (NFR-10) — реализуется в конце (Этап 5), пока не влияет на архитектуру.
+- Cloud STT (cloud whisper) — not v1 (STT local only, ADR-001).
+- Native cloud LLM providers (Anthropic, Gemini) — not v1; only OpenAI-compatible (ADR-004).
+- Windows / Linux (first version — macOS only).
+- Multi-monitor configurations.
+- Telemetry (optional, opt-in).
+- Auto-update (NFR-10) — implemented at the end (Stage 5), does not affect the architecture for now.

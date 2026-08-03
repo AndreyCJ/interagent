@@ -1,73 +1,73 @@
-# Архитектурные решения (ADR)
+# Architectural Decision Records (ADR)
 
-## Индекс
+## Index
 
-| ADR     | Название                                       | Статус     | Дата       | Кратко                                                                                                                                           |
-| ------- | ---------------------------------------------- | ---------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| ADR-001 | Локальный STT / гибридный LLM                  | Принято    | 2026-07-29 | STT — whisper.cpp (локально). LLM — локальный (llama.cpp) или облачный (OpenAI-совместимый) по выбору. См. NFR-02, NFR-11.                       |
-| ADR-002 | OCR: Apple Vision vs Tesseract                 | Принято    | 2026-08-01 | Apple Vision для macOS v1.                                                                                                                       |
-| ADR-003 | Хранилище: SQLite vs JSON                      | Принято    | 2026-08-01 | SQLite (pure-Go `modernc.org/sqlite`, без cgo).                                                                                                  |
-| ADR-004 | Облачный LLM (OpenAI-compatible) + ключи       | Принято    | 2026-08-01 | Универсальный адаптер, apiKey в AES-256-GCM (мастер-ключ в Keychain), согласие + индикатор в оверлее.                                            |
-| ADR-005 | Локальный инференс без cgo (кроме whisper.cpp) | Предложено | 2026-08-01 | STT — whisper.cpp через официальный Go-биндинг (единственное cgo-место). LLM — llama.go (pure Go, vision). Расширение порта LLM под изображения. |
-| ADR-006 | Порты Overlay и Hotkeys                        | Предложено | 2026-08-01 | Окно и глобальные шорткаты моделируются портами (TDD этапа 2). Переключаемый click-through ⇄ interactive по шорткату.                            |
-| ADR-007 | Аудио-пайплайн                                 | Предложено | 2026-08-01 | Источники: микрофон + системный звук (ScreenCaptureKit). Endpoint detection (whisper.cpp). Cancel при новом вводе.                               |
-| ADR-008 | macOS-разрешения                               | Предложено | 2026-08-01 | Микрофон, запись экрана, Accessibility. Централизованный модуль + событие `app:permission`.                                                      |
-| ADR-009 | Узкие интерфейсы хранилища (ISP)               | Принято    | 2026-08-01 | `port.Storage` разбит на `SessionStorage`, `AgentStorage`, `SettingsStorage`. Usecase'ы зависят только от нужного, моки в тестах минимальны.     |
+| ADR     | Title                                            | Status   | Date       | Summary                                                                                                                                    |
+| ------- | ------------------------------------------------ | -------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| ADR-001 | Local STT / hybrid LLM                           | Accepted | 2026-07-29 | STT — whisper.cpp (local). LLM — local (llama.cpp) or cloud (OpenAI-compatible), user's choice. See NFR-02, NFR-11.                        |
+| ADR-002 | OCR: Apple Vision vs Tesseract                   | Accepted | 2026-08-01 | Apple Vision for macOS v1.                                                                                                                 |
+| ADR-003 | Storage: SQLite vs JSON                          | Accepted | 2026-08-01 | SQLite (pure-Go `modernc.org/sqlite`, no cgo).                                                                                             |
+| ADR-004 | Cloud LLM (OpenAI-compatible) + keys             | Accepted | 2026-08-01 | Universal adapter, apiKey in AES-256-GCM (master key in Keychain), consent + indicator in the overlay.                                     |
+| ADR-005 | Local inference without cgo (except whisper.cpp) | Proposed | 2026-08-01 | STT — whisper.cpp via the official Go binding (the only cgo place). LLM — llama.go (pure Go, vision). LLM port extended to images.         |
+| ADR-006 | Overlay and Hotkeys ports                        | Proposed | 2026-08-01 | Window and global shortcuts modeled as ports (stage-2 TDD). Toggleable click-through ⇄ interactive by shortcut.                            |
+| ADR-007 | Audio pipeline                                   | Proposed | 2026-08-01 | Sources: microphone + system sound (ScreenCaptureKit). Endpoint detection (whisper.cpp). Cancel on new input.                              |
+| ADR-008 | macOS permissions                                | Proposed | 2026-08-01 | Microphone, screen recording, Accessibility. Centralized module + `app:permission` event.                                                  |
+| ADR-009 | Narrow storage interfaces (ISP)                  | Accepted | 2026-08-01 | `port.Storage` split into `SessionStorage`, `AgentStorage`, `SettingsStorage`. Usecases depend only on what they need, test mocks minimal. |
 
-## Как добавить ADR
+## How to add an ADR
 
-1. Скопировать шаблон: `adr/NNN-short-title-RFC.md` (заменить `NNN` на номер, `short-title` на имя файла).
-2. Заполнить все секции.
-3. Установить статус **Предложено**.
-4. Добавить строку в таблицу выше.
-5. После ревью и аппрува статус → **Принято** (или **Отклонено** / **Заменено**).
+1. Copy the template: `adr/NNN-short-title-RFC.md` (replace `NNN` with the number, `short-title` with the file name).
+2. Fill in all sections.
+3. Set the status to **Proposed**.
+4. Add a row to the table above.
+5. After review and approval the status → **Accepted** (or **Rejected** / **Superseded**).
 
-## Статусы
+## Statuses
 
-| Статус     | Когда                                            |
-| ---------- | ------------------------------------------------ |
-| Предложено | ADR написан, ревью не проведён.                  |
-| Принято    | Владелец аппрунул. Реализация опирается на него. |
-| Отклонено  | Альтернатива отклонена. Аргументы в секции.      |
-| Заменено   | Архив. Ссылка на заменяющий ADR.                 |
+| Status     | When                                            |
+| ---------- | ----------------------------------------------- |
+| Proposed   | ADR written, not reviewed yet.                  |
+| Accepted   | Owner approved. Implementation relies on it.    |
+| Rejected   | Alternative rejected. Arguments in the section. |
+| Superseded | Archive. Link to the superseding ADR.           |
 
-## Шаблон
+## Template
 
 ```markdown
-# ADR-NNN: [Заголовок]
+# ADR-NNN: [Title]
 
-**Дата:** ДД-ММ-ГГГГ
-**Статус:** Предложено
-**Связанные документы:** (список файлов, которые затрагивает)
+**Date:** DD-MM-YYYY
+**Status:** Proposed
+**Related documents:** (list of files it affects)
 
 ---
 
-## Контекст
+## Context
 
-Кратко: в чём проблема, какие ограничения есть. Ссылка на NFR / ТЗ.
+Briefly: what the problem is, what constraints exist. Link to NFR / spec.
 
-## Варианты
+## Options
 
-### A. [Вариант]
+### A. [Option]
 
-Плюсы: ...
-Минусы: ...
+Pros: ...
+Cons: ...
 
-### B. [Вариант]
+### B. [Option]
 
 ...
 
-## Критерии выбора
+## Selection criteria
 
-| Критерий | A   | B   |
-| -------- | --- | --- |
-|          |     |     |
+| Criterion | A   | B   |
+| --------- | --- | --- |
+|           |     |     |
 
-## Решение
+## Decision
 
-Выбран вариант **X**.
+Option **X** chosen.
 
-## Компромиссы
+## Trade-offs
 
-Что теряем, какие следы остаются в коде / архитектуре.
+What we lose, what traces remain in code / architecture.
 ```

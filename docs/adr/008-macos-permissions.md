@@ -1,30 +1,30 @@
-# ADR-008: macOS-разрешения — микрофон, запись экрана, Accessibility
+# ADR-008: macOS permissions — microphone, screen recording, Accessibility
 
-**Дата:** 2026-08-01
-**Статус:** Принято
-**Связанные документы:** 01-tz.md §7/§8, 02-nfr.md (NFR-05, NFR-06), 05-architecture.md §4, ADR-006, ADR-007
+**Date:** 2026-08-01
+**Status:** Accepted
+**Related documents:** 01-tz.md §7/§8, 02-nfr.md (NFR-05, NFR-06), 05-architecture.md §4, ADR-006, ADR-007
 
 ---
 
-## Контекст
+## Context
 
-Для работы v1 (macOS 14+) приложению нужны системные разрешения:
+For v1 (macOS 14+) the app needs system permissions:
 
-| Разрешение                                             | Зачем                                                    | Когда                   |
-| ------------------------------------------------------ | -------------------------------------------------------- | ----------------------- |
-| Микрофон (`NSMicrophoneUsageDescription`)              | Захват микрофона (роль `user`, ADR-007)                  | Этап 3                  |
-| Запись экрана (`CGPreflightScreenCaptureAccess` / SCK) | Захват системного звука через ScreenCaptureKit (ADR-007) | Этап 3 (системный звук) |
-| Accessibility (`AXIsProcessTrusted`)                   | Глобальные шорткаты (CGEventTap, ADR-006), NFR-05        | Этап 2                  |
+| Permission                                                | Why                                                 | When                   |
+| --------------------------------------------------------- | --------------------------------------------------- | ---------------------- |
+| Microphone (`NSMicrophoneUsageDescription`)               | Microphone capture (role `user`, ADR-007)           | Stage 3                |
+| Screen recording (`CGPreflightScreenCaptureAccess` / SCK) | System sound capture via ScreenCaptureKit (ADR-007) | Stage 3 (system sound) |
+| Accessibility (`AXIsProcessTrusted`)                      | Global shortcuts (CGEventTap, ADR-006), NFR-05      | Stage 2                |
 
-Проблема: macOS разрешения выдаются один раз в Системных настройках; повторный запрос после отказа невозможен программно. Приложение должно:
+The problem: macOS permissions are granted once in System Settings; a second request after denial is impossible programmatically. The app must:
 
-1. Проверять статус при старте и перед использованием.
-2. Понятно объяснять пользователю, зачем разрешение и как его выдать (открыть нужную панель Настроек).
-3. Не падать при отказе — показывать статус и деградировать (NFR-06): без микрофона недоступен аудио-сценарий, без записи экрана — системный звук, без Accessibility — глобальные шорткаты (остаются внутриоконные).
+1. Check the status at startup and before use.
+2. Clearly explain to the user why the permission is needed and how to grant it (open the relevant Settings pane).
+3. Not crash on denial — show the status and degrade (NFR-06): without the microphone the audio scenario is unavailable, without screen recording — system sound, without Accessibility — global shortcuts (in-window ones remain).
 
-## Варианты
+## Options
 
-### A. Централизованный модуль разрешений + событие `app:permission` [выбран]
+### A. Centralized permissions module + `app:permission` event [chosen]
 
 - `internal/port/permissions.go`:
 
@@ -37,61 +37,61 @@ const (
 )
 
 interface Permissions {
-    Status(p Permission) (bool, error)          // выдано или нет
-    Request(p Permission) error                 // запросить (вызов системного диалога)
-    OpenSettings(p Permission) error            // открыть нужную панель Системных настроек
+    Status(p Permission) (bool, error)          // granted or not
+    Request(p Permission) error                 // request (system dialog call)
+    OpenSettings(p Permission) error            // open the relevant System Settings pane
 }
 ```
 
-- `usecase/permissions`: на старте собирает статусы → событие `app:permission { permission, granted }`.
-- Адаптер `adapter/system/` (платформенные вызовы macOS).
-- Frontend: панель-онбординг в настройках; при отсутствии разрешения — понятная карточка с кнопкой «Открыть настройки». По возвращению в приложение статус перепроверяется.
-- Info.plist: `NSMicrophoneUsageDescription` (текст объяснения), `NSScreenCaptureUsageDescription` (для записи экрана).
+- `usecase/permissions`: at startup collects statuses → `app:permission { permission, granted }` event.
+- Adapter `adapter/system/` (macOS platform calls).
+- Frontend: onboarding panel in settings; when a permission is missing — a clear card with an "Open Settings" button. On returning to the app the status is re-checked.
+- Info.plist: `NSMicrophoneUsageDescription` (explanation text), `NSScreenCaptureUsageDescription` (for screen recording).
 
-**Плюсы:**
+**Pros:**
 
-- Единая точка проверки/статуса, простая логика деградации.
-- UI живёт на фронте, статус — событием (единый асинхронный канал, 04-events).
+- A single point for check/status, simple degradation logic.
+- The UI lives on the frontend, status arrives via an event (single async channel, 04-events).
 
-**Минусы:**
+**Cons:**
 
-- Немного кода на старте; часть проверок дублируется в адаптерах (audio/screenshot).
+- Some code at the start; some checks are duplicated in adapters (audio/screenshot).
 
-### B. Проверять разрешения в каждом адаптере по месту
+### B. Check permissions in each adapter in place
 
-**Плюсы:**
+**Pros:**
 
-- Меньше абстракций.
+- Fewer abstractions.
 
-**Минусы:**
+**Cons:**
 
-- Статус рассредоточен, сложнее UI-онбординг и тесты (NFR-06 — каждый адаптер требует обработку). Отклонено.
+- Status is scattered, UI onboarding and tests are harder (NFR-06 — every adapter needs handling). Rejected.
 
-## Критерии выбора
+## Selection criteria
 
-| Критерий               | A (централизованно) | B (по месту) |
-| ---------------------- | ------------------- | ------------ |
-| Понятный UX-онбординг  | ✅                  | ⚠️           |
-| Деградация без падения | ✅                  | ⚠️           |
-| Тестируемость (NFR-06) | ✅                  | ⚠️           |
-| Объём кода             | ⚠️                  | ✅           |
+| Criterion                 | A (centralized) | B (in place) |
+| ------------------------- | --------------- | ------------ |
+| Clear UX onboarding       | ✅              | ⚠️           |
+| Degradation without crash | ✅              | ⚠️           |
+| Testability (NFR-06)      | ✅              | ⚠️           |
+| Code volume               | ⚠️              | ✅           |
 
-## Решение
+## Decision
 
-Выбран вариант **A** — модуль `Permissions` + событие `app:permission`.
+Option **A** chosen — the `Permissions` module + `app:permission` event.
 
-### Поведение по умолчанию
+### Default behavior
 
-- При старте: проверка статусов всех трёх разрешений → `app:permission` для каждого.
-- При отказе: приложение работает, но соответствующая функция недоступна, в настройках — объяснение + кнопка «Открыть настройки».
-- При повторном возвращении в приложение (window focus) — перепроверка статусов.
-- Нет повторного системного запроса после отказа (запрещено macOS) — только переход в Системные настройки.
+- At startup: check the status of all three permissions → `app:permission` for each.
+- On denial: the app works, but the corresponding feature is unavailable, with an explanation and an "Open Settings" button in settings.
+- On returning to the app (window focus) — statuses are re-checked.
+- No repeated system request after denial (forbidden by macOS) — only navigation to System Settings.
 
-### Правило для NFR-06
+### Rule for NFR-06
 
-Отсутствие любого разрешения не роняет приложение: аудио-сценарий требует микрофон; системный звук требует запись экрана; глобальные шорткаты требуют Accessibility (иначе — только работа внутри окна/кликабельный режим).
+The absence of any permission does not crash the app: the audio scenario requires the microphone; system sound requires screen recording; global shortcuts require Accessibility (otherwise — only in-window/interactive mode).
 
-## Компромиссы
+## Trade-offs
 
-- Запись экрана на macOS 14+ даёт в том числе и системное аудио — для v1 используем один доступ (ScreenCaptureKit) и для захвата изображения, и для системного звука (этап 3–4).
-- Accessibility для хоткеев — самое «пугающее» разрешение для пользователя; текст объяснения обязателен (почему нужно, что приложение читает только шорткаты).
+- Screen recording on macOS 14+ also provides system audio — for v1 we use one access (ScreenCaptureKit) for both image capture and system sound (stages 3–4).
+- Accessibility for hotkeys is the most "scary" permission for the user; an explanation text is mandatory (why it is needed, that the app only reads shortcuts).

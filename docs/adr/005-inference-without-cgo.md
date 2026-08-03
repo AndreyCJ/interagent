@@ -1,106 +1,106 @@
-# ADR-005: Локальный инференс — без cgo (исключение: whisper.cpp)
+# ADR-005: Local inference — without cgo (exception: whisper.cpp)
 
-**Дата:** 2026-08-01
-**Статус:** Предложено
-**Связанные документы:** 01-tz.md §6–§8, 02-nfr.md (NFR-01, NFR-08), 05-architecture.md §2–§3, ADR-001, ADR-003, ADR-004
+**Date:** 2026-08-01
+**Status:** Proposed
+**Related documents:** 01-tz.md §6–§8, 02-nfr.md (NFR-01, NFR-08), 05-architecture.md §2–§3, ADR-001, ADR-003, ADR-004
 
 ---
 
-## Контекст
+## Context
 
-ADR-001 выбрал: STT — строго локально (whisper.cpp), LLM — гибрид (локальный llama.cpp или облачный OpenAI-compatible). ADR-003 выбрал SQLite без cgo (`modernc.org/sqlite`), чтобы не усложнять сборку на CI.
+ADR-001 chose: STT — strictly local (whisper.cpp), LLM — hybrid (local llama.cpp or cloud OpenAI-compatible). ADR-003 chose SQLite without cgo (`modernc.org/sqlite`) to keep CI builds simple.
 
-Требование владельца (2026-08-01): **никаких cgo-биндингов кроме whisper.cpp**. LLM-инференс и остальное ядро должны использовать Go-инструменты. Одновременно нужно поддерживать multimodal (скриншот как есть → в LLM, см. 01-tz этап 4) — локальный LLM должен уметь принимать изображения.
+Owner requirement (2026-08-01): **no cgo bindings except whisper.cpp**. LLM inference and the rest of the core must use Go tooling. At the same time, multimodal must be supported (screenshot as-is → LLM, see 01-tz stage 4) — the local LLM must accept images.
 
-## Варианты
+## Options
 
-### A. STT: официальный Go-биндинг whisper.cpp (cgo) [выбран]
+### A. STT: official whisper.cpp Go binding (cgo) [chosen]
 
-`bindings/go` из `ggml-org/whisper.cpp`. Это cgo-обёртка над C++.
+`bindings/go` from `ggml-org/whisper.cpp`. This is a cgo wrapper over C++.
 
-**Плюсы:**
+**Pros:**
 
-- Один бинарник, нет внешнего процесса для STT.
-- Режим стриминга + endpoint detection (детекция конца фразы) из коробки — нужен для NFR-01 и ADR-007.
-- Официальный репозиторий, активно поддерживается.
+- One binary, no external process for STT.
+- Streaming mode + endpoint detection (phrase end detection) out of the box — needed for NFR-01 and ADR-007.
+- Official repository, actively maintained.
 
-**Минусы:**
+**Cons:**
 
-- cgo: усложняет кросс-компиляцию, но на `macos-latest` CI работает штатно (clang есть по умолчанию).
-- Единственное исключение из правила «без cgo» — требует явной фиксации.
+- cgo: complicates cross-compilation, but works fine on `macos-latest` CI (clang is available by default).
+- The single exception to the "no cgo" rule — requires an explicit freeze.
 
-### B. STT: whisper.cpp как внешний процесс
+### B. STT: whisper.cpp as an external process
 
-`whisper-server` запускается как дочерний процесс (`--server --stream`), общение по localhost.
+`whisper-server` runs as a child process (`--server --stream`), communication over localhost.
 
-**Плюсы:**
+**Pros:**
 
-- Без cgo в нашем бинарнике.
+- No cgo in our binary.
 
-**Минусы:**
+**Cons:**
 
-- Нужно распространять/скачивать отдельный бинарник (размер, версии, подписи).
-- Сложнее управление жизненным циклом, запуск/стоп, обработка краша.
-- Дополнительная точка отказа (порт, pipe).
+- A separate binary must be distributed/downloaded (size, versions, signatures).
+- Harder lifecycle management, start/stop, crash handling.
+- An additional point of failure (port, pipe).
 
-### C. STT: pure-Go / WASM-порты (go-whisper, wazero)
+### C. STT: pure-Go / WASM ports (go-whisper, wazero)
 
-**Плюсы:**
+**Pros:**
 
-- Полностью pure Go, без внешних зависимостей.
+- Fully pure Go, no external dependencies.
 
-**Минусы:**
+**Cons:**
 
-- Непроверенная производительность; риск не уложиться в NFR-01 (цель 2 сек, лимит 5 сек) на M1 8 ГБ.
-- Меньше поддержки, хуже покрытие языков и endpoint detection.
+- Unproven performance; risk of missing NFR-01 (target 2 s, limit 5 s) on M1 8 GB.
+- Less maintenance, worse language coverage and endpoint detection.
 
-### D. LLM: llama.go (pure Go) [выбран]
+### D. LLM: llama.go (pure Go) [chosen]
 
-`github.com/ollama/llama.go` — чистый Go-порт llama.cpp (GGUF, Metal, KV-cache). Включает vision (LLaVA) для multimodal.
+`github.com/ollama/llama.go` — a clean Go port of llama.cpp (GGUF, Metal, KV-cache). Includes vision (LLaVA) for multimodal.
 
-**Плюсы:**
+**Pros:**
 
-- Pure Go, согласуется с требованием «без cgo».
-- Поддержка vision — закрывает multimodal для локального LLM.
-- Metal-ускорение на Apple Silicon.
+- Pure Go, consistent with the "no cgo" requirement.
+- Vision support — covers multimodal for the local LLM.
+- Metal acceleration on Apple Silicon.
 
-**Минусы:**
+**Cons:**
 
-- Может отставать от llama.cpp по поддержке свежих моделей (риск — мониторить).
-- Скорость на сложных моделях может быть ниже, чем у нативного llama.cpp.
+- May lag behind llama.cpp in support for the latest models (risk — monitor).
+- Speed on complex models may be lower than native llama.cpp.
 
-### E. LLM: llama.cpp через cgo
+### E. LLM: llama.cpp via cgo
 
-**Минусы:**
+**Cons:**
 
-- Второе cgo-место в проекте, нарушает требование владельца. Отклонено.
+- A second cgo place in the project, violates the owner's requirement. Rejected.
 
-## Критерии выбора
+## Selection criteria
 
-| Критерий              | STT A (cgo)  | STT B (процесс) | STT C (pure/WASM) | LLM D (llama.go) | LLM E (cgo llama.cpp) |
-| --------------------- | ------------ | --------------- | ----------------- | ---------------- | --------------------- |
-| Требование «без cgo»  | ❌ (исключ.) | ✅              | ✅                | ✅               | ❌                    |
-| Один бинарник         | ✅           | ❌              | ✅                | ✅               | ✅                    |
-| NFR-01 (латентность)  | ✅           | ⚠️ (IPC)        | ⚠️ (риск)         | ⚠️               | ✅                    |
-| Multimodal            | —            | —               | —                 | ✅ (vision)      | ✅                    |
-| Простота эксплуатации | ✅           | ⚠️              | ✅                | ✅               | ✅                    |
+| Criterion              | STT A (cgo)    | STT B (process) | STT C (pure/WASM) | LLM D (llama.go) | LLM E (cgo llama.cpp) |
+| ---------------------- | -------------- | --------------- | ----------------- | ---------------- | --------------------- |
+| "No cgo" requirement   | ❌ (exception) | ✅              | ✅                | ✅               | ❌                    |
+| Single binary          | ✅             | ❌              | ✅                | ✅               | ✅                    |
+| NFR-01 (latency)       | ✅             | ⚠️ (IPC)        | ⚠️ (risk)         | ⚠️               | ✅                    |
+| Multimodal             | —              | —               | —                 | ✅ (vision)      | ✅                    |
+| Operational simplicity | ✅             | ⚠️              | ✅                | ✅               | ✅                    |
 
-## Решение
+## Decision
 
-- **STT — whisper.cpp через официальный Go-биндинг** (`bindings/go`, cgo). Это **единственное** cgo-место в проекте, фиксируется как исключение.
-- **LLM локальный — llama.go** (pure Go, GGUF, Metal). Критерий приёмки: поддержка vision (LLaVA/llava-моделей) для multimodal-сценария. Если к моменту этапа 4 vision в llama.go окажется нерабочим — вернуться к этому ADR и пересмотреть.
-- **LLM облачный — OpenAI-compatible** (без изменений, ADR-004).
-- **Правило для проекта:** _«Pure Go где возможно; cgo допустим только для whisper.cpp»_. ADR-003 переформулируется соответствующим образом.
+- **STT — whisper.cpp via the official Go binding** (`bindings/go`, cgo). This is the **only** cgo place in the project, frozen as an exception.
+- **Local LLM — llama.go** (pure Go, GGUF, Metal). Acceptance criterion: vision support (LLaVA/llava models) for the multimodal scenario. If by stage 4 vision in llama.go turns out to be non-functional — return to this ADR and reconsider.
+- **Cloud LLM — OpenAI-compatible** (unchanged, ADR-004).
+- **Project rule:** _"Pure Go where possible; cgo allowed only for whisper.cpp"_. ADR-003 is reformulated accordingly.
 
-### Расширение порта `LLM` (multimodal)
+### `LLM` port extension (multimodal)
 
-Порт `LLM.Complete(prompt, history)` расширяется для приёма изображения:
+The `LLM.Complete(prompt, history)` port is extended to accept an image:
 
 ```
 type LLMInput struct {
     Text   string
-    Image  []byte   // опционально: PNG/JPEG скриншота
-    Format string   // "png" | "jpeg" (если Image != nil)
+    Image  []byte   // optional: PNG/JPEG of the screenshot
+    Format string   // "png" | "jpeg" (if Image != nil)
 }
 
 interface LLM {
@@ -109,10 +109,10 @@ interface LLM {
 }
 ```
 
-Изменение порта — реализуется через этот ADR. Фронтенд-контракт обновляется в `06-bind-contracts.md`.
+The port change is implemented through this ADR. The frontend contract is updated in `06-bind-contracts.md`.
 
-## Компромиссы
+## Trade-offs
 
-- cgo для whisper.cpp — осознанное исключение; сборка и тесты на `macos-latest` (CI) это подтверждают.
-- llama.go может не поддерживать конкретную свежую модель — для v1 зафиксировать поддерживаемый список моделей (3–8B, GGUF) и показывать в UI.
-- Multimodal при облачном агенте означает передачу скриншота в облако — см. обновление NFR-02 и ADR-004.
+- cgo for whisper.cpp is a deliberate exception; builds and tests on `macos-latest` (CI) confirm it.
+- llama.go may not support a specific fresh model — for v1, freeze a supported model list (3–8B, GGUF) and show it in the UI.
+- Multimodal with a cloud agent means sending the screenshot to the cloud — see the NFR-02 and ADR-004 updates.

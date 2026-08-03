@@ -1,37 +1,37 @@
-# ADR-NNN: [Заголовок]
+# ADR-NNN: [Title]
 
-**Дата:** ДД-ММ-ГГГГ
-**Статус:** Предложено
-**Связанные документы:** (список файлов, которые затрагивает)
+**Date:** DD-MM-YYYY
+**Status:** Proposed
+**Related documents:** (list of files it affects)
 
 ---
 
-## Контекст
+## Context
 
-Кратко: в чём проблема, какие ограничения есть. Ссылка на NFR / ТЗ.
+Briefly: what the problem is, what constraints exist. Link to NFR / spec.
 
-## Варианты
+## Options
 
-### A. [Вариант]
+### A. [Option]
 
-Плюсы: ...
-Минусы: ...
+Pros: ...
+Cons: ...
 
-### B. [Вариант]
+### B. [Option]
 
-Плюсы: ...
-Минусы: ...
+Pros: ...
+Cons: ...
 
-## Критерии выбора
+## Selection criteria
 
-| Критерий | A        | B        |
-| -------- | -------- | -------- |
-|          | ✅/⚠️/❌ | ✅/⚠️/❌ |
+| Criterion | A        | B        |
+| --------- | -------- | -------- |
+|           | ✅/⚠️/❌ | ✅/⚠️/❌ |
 
-## Решение
+## Decision
 
-Выбран вариант **X**.
+Option **X** chosen.
 
-## Компромиссы
+## Trade-offs
 
-Что теряем, какие следы остаются в коде / архитектуре.
+What we lose, what traces remain in code / architecture.

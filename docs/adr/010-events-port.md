@@ -1,20 +1,20 @@
-# ADR-010: Порт событий (Event Bus)
+# ADR-010: Events port (Event Bus)
 
-**Дата:** 2026-08-02
-**Статус:** Принято
-**Связанные документы:** 04-events.md, 05-architecture.md, 06-bind-contracts.md (Этап 2)
+**Date:** 2026-08-02
+**Status:** Accepted
+**Related documents:** 04-events.md, 05-architecture.md, 06-bind-contracts.md (Stage 2)
 
 ---
 
-## Контекст
+## Context
 
-Бэкенд сообщает фронтенду асинхронные результаты (ответ LLM, смена режима оверлея, статусы разрешений — см. `04-events.md`) только событиями. На этапе 1 `usecase`ов не было асинхронных операций: `LLM.SendText` синхронно возвращал ошибку, а bind-методы — только синхронные результаты.
+The backend reports async results to the frontend (LLM response, overlay mode change, permission statuses — see `04-events.md`) only via events. In stage 1 the usecases had no async operations: `LLM.SendText` synchronously returned an error, and bind methods returned only synchronous results.
 
-Начиная с этапа 2 (`LLM.SendText` генерирует ответ асинхронно и шлёт `llm:response`, переключение режима оверлея и статусы разрешений) usecase должны инициировать события. Чтобы не завязывать `usecase` на Wails (нарушение чистых зависимостей: `adapter → port ← usecase`), события инициируются через порт.
+Starting with stage 2 (`LLM.SendText` generates a response asynchronously and sends `llm:response`, overlay mode toggling and permission statuses), usecases must initiate events. To avoid tying `usecase` to Wails (violating clean dependencies: `adapter → port ← usecase`), events are initiated through a port.
 
-## Варианты
+## Options
 
-### A. Порт `Events` в `internal/port` [выбран]
+### A. `Events` port in `internal/port` [chosen]
 
 ```go
 // events.go
@@ -23,32 +23,32 @@ type Events interface {
 }
 ```
 
-- `usecase` зависит от `port.Events` (интерфейс), адаптеры/конструкция приложения предоставляют реализацию на Wails `runtime.EventsEmit`.
-- Тестируемость: usecase тестируются с моком `port.Events`, проверяя, какие события и с каким payload эмитятся.
+- `usecase` depends on `port.Events` (an interface); adapters/app composition provide a Wails `runtime.EventsEmit` implementation.
+- Testability: usecases are tested with a `port.Events` mock, checking which events are emitted and with what payload.
 
-**Плюсы:** чистые зависимости, юнит-тесты покрывают события, замена транспорта (Wails → тест/будущие runtime) без правки usecase.
-**Минусы:** ещё один порт/интерфейс.
+**Pros:** clean dependencies, unit tests cover events, transport replacement (Wails → test/future runtime) without touching usecases.
+**Cons:** one more port/interface.
 
-### B. Жёсткая привязка usecase к Wails runtime через функцию-обёртку в `bind`
+### B. Hard-tie usecase to the Wails runtime via a wrapper function in `bind`
 
-usecase получает `func(name string, payload any)` — делает обёртку без порта.
+The usecase receives `func(name string, payload any)` — a wrapper without a port.
 
-**Плюсы:** меньше абстракций.
-**Минусы:** неявный контракт, сложнее мокать, рассеянный транспортный слой — не соответствует слоистой модели (`bind → usecase → port`).
+**Pros:** fewer abstractions.
+**Cons:** implicit contract, harder to mock, scattered transport layer — does not match the layered model (`bind → usecase → port`).
 
-## Критерии выбора
+## Selection criteria
 
-| Критерий              | A (порт) | B (функция) |
-| --------------------- | -------- | ----------- |
-| Чистота слоёв         | ✅       | ⚠️          |
-| Тестируемость событий | ✅       | ⚠️          |
-| Явный контракт типов  | ✅       | ❌          |
+| Criterion              | A (port) | B (function) |
+| ---------------------- | -------- | ------------ |
+| Layer cleanliness      | ✅       | ⚠️           |
+| Event testability      | ✅       | ⚠️           |
+| Explicit type contract | ✅       | ❌           |
 
-## Решение
+## Decision
 
-Выбран вариант **A** — порт `Events` в `internal/port/events.go`. Реализация Wails находится в `adapter/events` (обёртка над `runtime.EventsEmit`). Usecase `overlay`, `llm`, `permissions`, `hotkeys` используют его для эмиссии событий из `04-events.md`.
+Option **A** chosen — the `Events` port in `internal/port/events.go`. The Wails implementation lives in `adapter/events` (a wrapper over `runtime.EventsEmit`). The `overlay`, `llm`, `permissions`, `hotkeys` usecases use it to emit events from `04-events.md`.
 
-## Компромиссы
+## Trade-offs
 
-- `Emit` лучше использовать для кратких payload (строка, структура, сериализуемая в JSON `wails runtime`): события Wails — JSON. Тяжёлые данные лучше передавать отдельными бинд-вызовами.
-- Реализация `adapter/events` не покрывается юнит-тестами (обёртка над runtime), тестируется e2e/ручной проверкой.
+- `Emit` is best used for short payloads (string, struct, serializable to JSON `wails runtime`): Wails events are JSON. Heavy data is better passed via separate bind calls.
+- The `adapter/events` implementation is not covered by unit tests (a wrapper over runtime); it is tested by e2e/manual checks.
