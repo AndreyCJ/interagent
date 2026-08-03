@@ -1,5 +1,5 @@
 html {
-  background-color: rgba(27, 38, 54, 1);
+  background-color: transparent;
   text-align: center;
   color: white;
 }
@@ -20,6 +20,7 @@ body {
     'Droid Sans',
     'Helvetica Neue',
     sans-serif;
+  background-color: transparent;
 }
 
 @font-face {
@@ -34,4 +35,24 @@ body {
 #app {
   height: 100vh;
   text-align: center;
+  background-color: transparent;
+}
+
+.theme-transparent {
+  background-color: transparent;
+}
+
+.theme-transparent .panel,
+.theme-transparent .chat-panel,
+.theme-transparent input,
+.theme-transparent textarea {
+  background-color: rgba(27, 38, 54, 0.85);
+}
+
+.theme-dark {
+  background-color: rgba(27, 38, 54, 1);
+}
+
+.theme-light {
+  background-color: rgba(240, 244, 248, 1);
 }
