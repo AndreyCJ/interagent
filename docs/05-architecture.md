@@ -11,7 +11,7 @@
 - **Bind — only a dispatcher.** `bind_*.go` receives frontend calls, calls `usecase`, sends events. Knows nothing about adapters.
 - **Adapter replacement without pain.** `internal/port/` — interfaces. `usecase` works through them.
 - **Testability.** `usecase` is tested with adapter mocks. Adapters — integrationally.
-- **ADR-001/005 mandatory.** STT — local only (whisper.cpp, cgo binding). LLM — local (Ollama, ADR-011) or cloud OpenAI-compatible, user's choice (ADR-004); apiKey encrypted (NFR-11).
+- **ADR-001/005/011 mandatory.** STT — local only (whisper.cpp, cgo binding). LLM — local (Ollama, ADR-011) or cloud OpenAI-compatible, user's choice (ADR-004); apiKey encrypted (NFR-11).
 - **Feature-first frontend.** Each feature lives in its own folder `frontend/features/<name>/`.
 
 ---
@@ -85,13 +85,13 @@ Frontend dependency chain — `common ➜ features ➜ app`
 
 All scenarios reduce to a single chain: **Input → Enrich → LLM → Render**.
 
-| Step      | What                                                | Who                                             | Where                                                        |
-| --------- | --------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------ |
-| 1. Input  | Input arrival (text, STT, screenshot)               | frontend / bind                                 | Stage 2 / 3 / 4                                              |
-| 2. Enrich | (optional) STT / OCR convert media → text           | adapter: audio/stt, screenshot/ocr              |                                                              |
-| 3. LLM    | `LLM.Complete(input, history)` → string             | usecase → port.LLM → adapter:llm (local: Ollama | cloud: openai-compatible) — choice by `AgentConfig.provider` |
-| 4. Render | Output the answer to the overlay + write to history | frontend → bind (event `llm:response`)          |                                                              |
-| Error     | `app:error { stage, error }` + local log            | any layer                                       | NFR-06, NFR-09                                               |
+| Step      | What                                                      | Who                                             | Where                                                        |
+| --------- | --------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------ |
+| 1. Input  | Input arrival (text, STT, screenshot)                     | frontend / bind                                 | Stage 2 / 3 / 4                                              |
+| 2. Enrich | (optional) STT / OCR convert media → text                 | adapter: audio/stt, screenshot/ocr              |                                                              |
+| 3. LLM    | `LLM.Complete(input LLMInput, history, onToken)` → string | usecase → port.LLM → adapter:llm (local: Ollama | cloud: openai-compatible) — choice by `AgentConfig.provider` |
+| 4. Render | Output the answer to the overlay + write to history       | frontend → bind (event `llm:response`)          |                                                              |
+| Error     | `app:error { stage, error }` + local log                  | any layer                                       | NFR-06, NFR-09                                               |
 
 **Manual input (Stage 2).** `frontend → SendText(text) → bind → usecase LLM.Complete → llm:started / llm:response` (through the `Events` port). The usecase appends to the current session history (`user` + `assistant`); `llm:error` — without crashing (NFR-06).
 
