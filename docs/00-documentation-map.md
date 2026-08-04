@@ -36,7 +36,7 @@
 2. **Principles, layers, dependencies** — only in `05-architecture.md`.
 3. **Bind methods and their contract** — only in `06-bind-contracts.md` (data types — in code).
 4. **Decisions about integrations / inference / storage** — only in ADRs. If mentioned in 01-tz — there is a link there (ADR-XXX).
-5. **STT — local only (whisper.cpp).** LLM — local (llama.go) or cloud OpenAI-compatible, user's choice (see ADR-001, ADR-004, ADR-005). apiKey is stored encrypted.
+5. **STT — local only (whisper.cpp).** LLM — local (Ollama, ADR-011) or cloud OpenAI-compatible, user's choice (see ADR-001, ADR-004, ADR-011). apiKey is stored encrypted.
 6. **Changing the architecture** — only via ADR (`docs/adr/README.md`).
 
 ## Reading order

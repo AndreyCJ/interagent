@@ -13,6 +13,7 @@
 | ADR-007 | Audio pipeline                                   | Proposed | 2026-08-01 | Sources: microphone + system sound (ScreenCaptureKit). Endpoint detection (whisper.cpp). Cancel on new input.                              |
 | ADR-008 | macOS permissions                                | Proposed | 2026-08-01 | Microphone, screen recording, Accessibility. Centralized module + `app:permission` event.                                                  |
 | ADR-009 | Narrow storage interfaces (ISP)                  | Accepted | 2026-08-01 | `port.Storage` split into `SessionStorage`, `AgentStorage`, `SettingsStorage`. Usecases depend only on what they need, test mocks minimal. |
+| ADR-011 | Local LLM via Ollama (separate process)          | Accepted | 2026-08-03 | Ollama app as local LLM (REST on `localhost:11434`), streaming `LLM` port; supersedes the LLM part of ADR-005 (llama.go).                  |
 
 ## How to add an ADR
 

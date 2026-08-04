@@ -11,7 +11,7 @@
 - **Bind — only a dispatcher.** `bind_*.go` receives frontend calls, calls `usecase`, sends events. Knows nothing about adapters.
 - **Adapter replacement without pain.** `internal/port/` — interfaces. `usecase` works through them.
 - **Testability.** `usecase` is tested with adapter mocks. Adapters — integrationally.
-- **ADR-001/005 mandatory.** STT — local only (whisper.cpp, cgo binding). LLM — local (llama.go, pure Go) or cloud OpenAI-compatible, user's choice (ADR-004); apiKey encrypted (NFR-11).
+- **ADR-001/005 mandatory.** STT — local only (whisper.cpp, cgo binding). LLM — local (Ollama, ADR-011) or cloud OpenAI-compatible, user's choice (ADR-004); apiKey encrypted (NFR-11).
 - **Feature-first frontend.** Each feature lives in its own folder `frontend/features/<name>/`.
 
 ---
@@ -47,7 +47,7 @@ Frontend dependency chain — `common ➜ features ➜ app`
 - `bind.go / bind_*.go` — delivery layer. Receives frontend calls, delegates to `usecase`, sends events. Knows nothing about adapters.
 - `internal/usecase` — business logic. Depends only on `internal/port`.
 - `internal/port` — interfaces and data types, no external dependencies.
-- `internal/adapter/*` — port implementations: `audio/` (microphone + system sound + STT), `llm/` (local llama.go + openai-compatible cloud), `screenshot/` (capture + OCR), `storage/` (SQLite), `window/` (overlay), `hotkeys/`, `system/` (macOS permissions).
+- `internal/adapter/*` — port implementations: `audio/` (microphone + system sound + STT), `llm/` (local Ollama + openai-compatible cloud), `screenshot/` (capture + OCR), `storage/` (SQLite), `window/` (overlay), `hotkeys/`, `system/` (macOS permissions).
 
 **Dependency rule:** `adapter → port ← usecase ← bind ← frontend`. No circular dependencies. `port` does not depend on implementations. Changing a port (interface) — both `usecase` and all adapters change: done via ADR.
 
@@ -71,7 +71,7 @@ Frontend dependency chain — `common ➜ features ➜ app`
 
 `LLM` is streaming-capable (ADR-011); the active agent's provider routes to the Ollama or OpenAI-compatible adapter via the `LLMFactory` wired in `app.go`. apiKey is encrypted at rest (ADR-004) via the `Crypto` port.
 
-`Overlay`, `Hotkeys`, `Permissions` are introduced in ADR-006 / ADR-008 — they are needed right away for the stage-2 TDD tests (overlay behavior, click-through, shortcuts) and for handling macOS permissions. `LLM.Complete` accepts `input { text, image? }` — multimodal (ADR-005).
+`Overlay`, `Hotkeys`, `Permissions` are introduced in ADR-006 / ADR-008 — they are needed right away for the stage-2 TDD tests (overlay behavior, click-through, shortcuts) and for handling macOS permissions. `LLM.Complete(input LLMInput, history, onToken)` — multimodal image input stays for stage 4.
 
 > **Overlay** — the window is modeled as a port (ADR-006): `Show/Hide/Toggle/SetMode/GetMode`. Implementation — Wails + platform calls in `adapter/window`. Tested at the usecase layer with mocks.
 
@@ -85,13 +85,13 @@ Frontend dependency chain — `common ➜ features ➜ app`
 
 All scenarios reduce to a single chain: **Input → Enrich → LLM → Render**.
 
-| Step      | What                                                | Who                                               | Where                                                        |
-| --------- | --------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------ |
-| 1. Input  | Input arrival (text, STT, screenshot)               | frontend / bind                                   | Stage 2 / 3 / 4                                              |
-| 2. Enrich | (optional) STT / OCR convert media → text           | adapter: audio/stt, screenshot/ocr                |                                                              |
-| 3. LLM    | `LLM.Complete(input, history)` → string             | usecase → port.LLM → adapter:llm (local: llama.go | cloud: openai-compatible) — choice by `AgentConfig.provider` |
-| 4. Render | Output the answer to the overlay + write to history | frontend → bind (event `llm:response`)            |                                                              |
-| Error     | `app:error { stage, error }` + local log            | any layer                                         | NFR-06, NFR-09                                               |
+| Step      | What                                                | Who                                             | Where                                                        |
+| --------- | --------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------ |
+| 1. Input  | Input arrival (text, STT, screenshot)               | frontend / bind                                 | Stage 2 / 3 / 4                                              |
+| 2. Enrich | (optional) STT / OCR convert media → text           | adapter: audio/stt, screenshot/ocr              |                                                              |
+| 3. LLM    | `LLM.Complete(input, history)` → string             | usecase → port.LLM → adapter:llm (local: Ollama | cloud: openai-compatible) — choice by `AgentConfig.provider` |
+| 4. Render | Output the answer to the overlay + write to history | frontend → bind (event `llm:response`)          |                                                              |
+| Error     | `app:error { stage, error }` + local log            | any layer                                       | NFR-06, NFR-09                                               |
 
 **Manual input (Stage 2).** `frontend → SendText(text) → bind → usecase LLM.Complete → llm:started / llm:response` (through the `Events` port). The usecase appends to the current session history (`user` + `assistant`); `llm:error` — without crashing (NFR-06).
 
@@ -102,7 +102,7 @@ All scenarios reduce to a single chain: **Input → Enrich → LLM → Render**.
 - **OCR:** `CaptureFullScreen/Region → ScreenCapture → OCR → ocr:done → SendText → LLM → llm:response` (text).
 - **Multimodal (direct-image):** `CaptureFullScreen/Region → SendImage({base64, format}) → LLM.Complete(input{text, image}) → llm:response` (screenshot as-is, ADR-005).
 
-Inference: **STT local** (whisper.cpp via cgo binding, ADR-005); **LLM — hybrid** (llama.go locally or OpenAI-compatible cloud, user's choice); OCR — Apple Vision (see ADR-001, ADR-002, ADR-003, ADR-004, ADR-005).
+Inference: **STT local** (whisper.cpp via cgo binding, ADR-005); **LLM — hybrid** (Ollama locally or OpenAI-compatible cloud, user's choice); OCR — Apple Vision (see ADR-001, ADR-002, ADR-003, ADR-004, ADR-005).
 
 ---
 

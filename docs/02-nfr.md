@@ -5,7 +5,7 @@
 
 ---
 
-All requirements are measured on the target configuration: MacBook Air M1, 8 GB RAM, macOS 14+. Inference is local (STT: whisper.cpp; LLM: llama.go) or cloud (OpenAI-compatible), user's choice (see ADR-001, ADR-004, ADR-005).
+All requirements are measured on the target configuration: MacBook Air M1, 8 GB RAM, macOS 14+. Inference is local (STT: whisper.cpp; LLM: Ollama (ADR-011)) or cloud (OpenAI-compatible), user's choice (see ADR-001, ADR-004, ADR-011).
 
 ## Requirements
 
