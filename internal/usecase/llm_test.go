@@ -160,6 +160,34 @@ func TestLLM_Generate_StreamsPartials_ReturnsAnswer(t *testing.T) {
 	}
 }
 
+func TestLLM_Generate_Language_AppendsInstruction(t *testing.T) {
+	engine := &mockLLM{response: "réponse"}
+	events := newMockEvents()
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	llm := NewLLM(events, &mockSessionWriter{}, mockSessionReader{}, agent, mockFactory{engine: engine})
+
+	if _, err := llm.Generate(port.LLMInput{Text: "Question", Language: "fr"}, "user"); err != nil {
+		t.Fatalf("Generate() error: %v", err)
+	}
+	if got := engine.gotInput.Text; got != "Question\nAnswer in the speaker's language (detected: fr)." {
+		t.Errorf("engine text = %q", got)
+	}
+}
+
+func TestLLM_Generate_NoLanguage_NoInstruction(t *testing.T) {
+	engine := &mockLLM{response: "answer"}
+	events := newMockEvents()
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	llm := NewLLM(events, &mockSessionWriter{}, mockSessionReader{}, agent, mockFactory{engine: engine})
+
+	if _, err := llm.Generate(port.LLMInput{Text: "Question"}, "user"); err != nil {
+		t.Fatalf("Generate() error: %v", err)
+	}
+	if engine.gotInput.Text != "Question" {
+		t.Errorf("engine text = %q, want unchanged", engine.gotInput.Text)
+	}
+}
+
 func TestLLM_Generate_PassesHistoryFromReader(t *testing.T) {
 	engine := &mockLLM{response: "ok"}
 	hist := []port.Message{{Role: "user", Text: "earlier", Timestamp: 1}}

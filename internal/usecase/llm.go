@@ -51,6 +51,9 @@ func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
 	if role != "user" && role != "interviewer" {
 		return "", errors.New("invalid role: " + role)
 	}
+	if input.Language != "" {
+		input.Text += "\nAnswer in the speaker's language (detected: " + input.Language + ")."
+	}
 	l.mu.Lock()
 	l.cancelled = false
 	l.mu.Unlock()
