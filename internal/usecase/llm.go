@@ -100,6 +100,13 @@ func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
 		_ = l.events.Emit("llm:error", map[string]string{"error": err.Error()})
 		return "", err
 	}
+	l.mu.Lock()
+	cancelled := l.cancelled
+	l.mu.Unlock()
+	if cancelled {
+		// user cancelled mid-stream; do not persist a truncated answer or emit llm:response
+		return "", nil
+	}
 	if answer == "" {
 		_ = l.events.Emit("llm:error", map[string]string{"error": "empty response from LLM"})
 		return "", errors.New("empty response from LLM")

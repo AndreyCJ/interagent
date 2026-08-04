@@ -200,6 +200,33 @@ func TestLLM_Generate_WriterReaderShared_NoDuplicatePrompt(t *testing.T) {
 	}
 }
 
+func TestLLM_Generate_CancelledOnSuccess_NoResponse(t *testing.T) {
+	engine := &mockLLM{response: "partial-answer"}
+	events := newMockEvents()
+	session := &mockSessionWriter{}
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	var llm *LLM
+	engine.cancelHook = func() { _ = llm.Cancel() }
+	llm = NewLLM(events, session, mockSessionReader{}, agent, mockFactory{engine: engine})
+
+	answer, err := llm.Generate(port.LLMInput{Text: "q"}, "user")
+	if err != nil {
+		t.Fatalf("Generate() after cancel should not return an error, got: %v", err)
+	}
+	if answer != "" {
+		t.Errorf("answer = %q, want empty after cancel", answer)
+	}
+	if events.count("llm:response") != 0 {
+		t.Errorf("llm:response must not fire after cancel, got %d", events.count("llm:response"))
+	}
+	if events.count("llm:cancelled") != 1 {
+		t.Errorf("expected 1 llm:cancelled event, got %d", events.count("llm:cancelled"))
+	}
+	if len(session.roles) != 1 || session.roles[0] != "user" {
+		t.Errorf("assistant must not be appended after cancel, roles = %v", session.roles)
+	}
+}
+
 func TestLLM_Generate_EngineError_EmitsError_NoAssistant(t *testing.T) {
 	engine := &mockLLM{err: errors.New("network timeout")}
 	events := newMockEvents()
