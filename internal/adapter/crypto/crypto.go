@@ -11,6 +11,8 @@ import (
 	"interagent/internal/port"
 )
 
+var _ port.Crypto = (*AESGCM)(nil)
+
 type AESGCM struct{ key []byte }
 
 func NewAESGCM(key []byte) *AESGCM { return &AESGCM{key: key} }

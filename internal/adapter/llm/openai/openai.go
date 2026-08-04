@@ -14,6 +14,8 @@ import (
 	"interagent/internal/port"
 )
 
+var _ port.LLM = (*OpenAI)(nil)
+
 type OpenAI struct {
 	baseURL      string
 	apiKey       string

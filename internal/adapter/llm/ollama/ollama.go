@@ -14,6 +14,8 @@ import (
 	"interagent/internal/port"
 )
 
+var _ port.LLM = (*Ollama)(nil)
+
 type Ollama struct {
 	baseURL      string
 	model        string
