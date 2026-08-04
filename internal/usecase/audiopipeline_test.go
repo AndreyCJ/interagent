@@ -113,22 +113,36 @@ type mockPipelineLLM struct {
 	roles       []string
 	cancelCalls int
 	block       chan struct{}
+	gates       []chan struct{}
+	returns     int
 }
 
 func (m *mockPipelineLLM) Generate(input port.LLMInput, role string) (string, error) {
 	m.mu.Lock()
 	m.inputs = append(m.inputs, input)
 	m.roles = append(m.roles, role)
-	m.mu.Unlock()
+	var gate chan struct{}
 	if m.block != nil {
-		<-m.block
+		gate = make(chan struct{})
+		m.gates = append(m.gates, gate)
 	}
+	m.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	m.mu.Lock()
+	m.returns++
+	m.mu.Unlock()
 	return "answer", nil
 }
 
 func (m *mockPipelineLLM) Cancel() error {
 	m.mu.Lock()
 	m.cancelCalls++
+	if n := len(m.gates); n > 0 {
+		close(m.gates[n-1])
+		m.gates = m.gates[:n-1]
+	}
 	m.mu.Unlock()
 	return nil
 }
@@ -143,6 +157,12 @@ func (m *mockPipelineLLM) cancels() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.cancelCalls
+}
+
+func (m *mockPipelineLLM) returned() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.returns
 }
 
 type mockHistory struct {
@@ -327,8 +347,8 @@ func TestAudioPipeline_NewInputDuringGeneration_CancelsThenAnswers(t *testing.T)
 	waitFor(t, func() bool { inputs, _ := llm.calls(); return len(inputs) == 1 })
 
 	// The second question arrives while the first Generate is still blocked,
-	// so cancel-on-new-input is exercised deterministically. Only afterwards
-	// do we release the first (and second) Generate.
+	// so cancel-on-new-input is exercised deterministically: Cancel() releases
+	// the cancelled generation's gate, while the second stays blocked.
 	stt.done("second question", 0.95, "en")
 	waitFor(t, func() bool { return llm.cancels() >= 1 })
 	close(llm.block)
@@ -339,6 +359,44 @@ func TestAudioPipeline_NewInputDuringGeneration_CancelsThenAnswers(t *testing.T)
 	}
 	if llm.cancels() < 1 {
 		t.Error("Cancel() must be called when a new question arrives during generation")
+	}
+}
+
+func TestAudioPipeline_NewInputDuringGeneration_CancelsTwice(t *testing.T) {
+	events := newEventRecorder()
+	stt := &mockPipelineSTT{}
+	llm := &mockPipelineLLM{block: make(chan struct{})}
+	p := NewAudioPipeline(port.AudioSourceSystem, events, &mockPipelineInput{}, stt, llm, &mockHistory{})
+	if err := p.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+
+	waitFor(t, func() bool { return stt.sampleRateValue() == 48000 })
+
+	stt.done("first question", 0.9, "en")
+	waitFor(t, func() bool { inputs, _ := llm.calls(); return len(inputs) == 1 })
+
+	// Second done cancels G1 (Cancel releases its gate, so G1 returns) and
+	// starts G2, which stays blocked on its own gate.
+	stt.done("second question", 0.95, "en")
+	waitFor(t, func() bool { inputs, _ := llm.calls(); return len(inputs) == 2 })
+	// Wait for G1's cancelled Generate to return so its goroutine has finished;
+	// a stale gen clear (G1 finishing after G2 started) would then already have
+	// happened before the third done fires.
+	waitFor(t, func() bool { return llm.returned() >= 1 })
+
+	// G2 is still generating, so the third done must cancel it too (not spawn
+	// G3 concurrently with G2) — the regressed behavior skipped this Cancel.
+	stt.done("third question", 0.97, "en")
+	waitFor(t, func() bool { return llm.cancels() >= 2 })
+	waitFor(t, func() bool { inputs, _ := llm.calls(); return len(inputs) == 3 })
+	inputs, _ := llm.calls()
+	if inputs[2].Text != "third question" {
+		t.Errorf("third Generate input = %+v", inputs[2])
+	}
+	if llm.cancels() < 2 {
+		t.Error("Cancel() must be called for every superseded generation")
 	}
 }
 

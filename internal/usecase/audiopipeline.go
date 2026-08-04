@@ -39,6 +39,7 @@ type AudioPipeline struct {
 	mu      sync.Mutex
 	running bool
 	gen     bool
+	seq     int
 }
 
 func NewAudioPipeline(source port.AudioSource, events port.Events, input audioInput, stt sttStreamer, llm llmGenerator, writer sessionWriter) *AudioPipeline {
@@ -119,12 +120,19 @@ func (a *AudioPipeline) autoAnswer(text, language string) {
 		_ = a.llm.Cancel()
 	}
 	a.gen = true
+	a.seq++
+	mine := a.seq
 	a.mu.Unlock()
 
 	go func() {
 		defer func() {
 			a.mu.Lock()
-			a.gen = false
+			// only the newest generation may clear the in-flight flag; a
+			// superseded (cancelled) one that returns after a newer generation
+			// started must not clear it for the newer generation (ADR-007)
+			if a.seq == mine {
+				a.gen = false
+			}
 			a.mu.Unlock()
 		}()
 		_, _ = a.llm.Generate(port.LLMInput{Text: text, Language: language}, "interviewer")
