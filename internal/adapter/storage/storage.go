@@ -10,14 +10,17 @@ import (
 	"interagent/internal/port"
 )
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db    *sql.DB
+	crypt port.Crypto
+}
 
-func New(dsn string) (*Store, error) {
+func New(dsn string, crypt port.Crypto) (*Store, error) {
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, crypt: crypt}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -84,6 +87,14 @@ func (s *Store) seed() error {
 		`INSERT INTO settings (id, theme, language, auto_start_listening, shortcuts)
 		 VALUES (1, 'transparent', 'en', 0, ?)`,
 		shortcutsJSON,
+	)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(
+		`INSERT OR IGNORE INTO agents (id, name, provider, model, base_url, api_key, system_prompt, temperature)
+		 VALUES ('default-local', 'Local (Ollama)', 'local', 'qwen3:8b', 'http://localhost:11434', '',
+		         'You are a subtle interview hint assistant. Answer concisely. Answer in the same language as the question.', 0.7)`,
 	)
 	return err
 }
@@ -163,6 +174,14 @@ func (s *Store) GetAgents() ([]port.AgentConfig, error) {
 }
 
 func (s *Store) SaveAgent(cfg port.AgentConfig) error {
+	key := cfg.APIKey
+	if key != "" {
+		enc, err := s.crypt.Encrypt(key)
+		if err != nil {
+			return err
+		}
+		key = enc
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO agents (id, name, provider, model, base_url, api_key, system_prompt, temperature)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -170,7 +189,7 @@ func (s *Store) SaveAgent(cfg port.AgentConfig) error {
 		   name = excluded.name, provider = excluded.provider, model = excluded.model,
 		   base_url = excluded.base_url, api_key = excluded.api_key,
 		   system_prompt = excluded.system_prompt, temperature = excluded.temperature`,
-		cfg.ID, cfg.Name, cfg.Provider, cfg.Model, cfg.BaseURL, cfg.APIKey,
+		cfg.ID, cfg.Name, cfg.Provider, cfg.Model, cfg.BaseURL, key,
 		cfg.SystemPrompt, cfg.Temperature,
 	)
 	return err

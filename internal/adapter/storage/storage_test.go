@@ -8,9 +8,16 @@ import (
 
 const testDSN = "file::memory:?cache=shared"
 
+type testCrypto struct{}
+
+func (testCrypto) Encrypt(plaintext string) (string, error) { return "enc:" + plaintext, nil }
+func (testCrypto) Decrypt(ciphertext string) (string, error) {
+	return "dec:" + ciphertext, nil
+}
+
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := New(testDSN)
+	s, err := New(testDSN, testCrypto{})
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
@@ -171,7 +178,7 @@ func TestStorage_Agents_CRUD(t *testing.T) {
 		Provider:     "local",
 		Model:        "model-3b",
 		BaseURL:      "",
-		APIKey:       "",
+		APIKey:       "sk-secret",
 		SystemPrompt: "You help",
 		Temperature:  0.3,
 	}
@@ -179,15 +186,31 @@ func TestStorage_Agents_CRUD(t *testing.T) {
 		t.Fatalf("SaveAgent() returned error: %v", err)
 	}
 
+	var storedKey string
+	err := s.db.QueryRow(`SELECT api_key FROM agents WHERE id = 'a1'`).Scan(&storedKey)
+	if err != nil {
+		t.Fatalf("read stored key: %v", err)
+	}
+	if storedKey != "enc:sk-secret" {
+		t.Errorf("stored api_key = %q, want enc:sk-secret (encrypted)", storedKey)
+	}
+
 	agents, err := s.GetAgents()
 	if err != nil {
 		t.Fatalf("GetAgents() returned error: %v", err)
 	}
-	if len(agents) != 1 {
-		t.Fatalf("agents count = %d, want 1", len(agents))
+	var found *port.AgentConfig
+	for i := range agents {
+		if agents[i].ID == "a1" {
+			found = &agents[i]
+			break
+		}
 	}
-	if agents[0].ID != "a1" || agents[0].Model != "model-3b" {
-		t.Errorf("agent mismatch: %+v", agents[0])
+	if found == nil {
+		t.Fatalf("agent a1 not found in %d agents", len(agents))
+	}
+	if found.Model != "model-3b" {
+		t.Errorf("agent mismatch: %+v", *found)
 	}
 
 	if err := s.DeleteAgent("a1"); err != nil {
@@ -197,7 +220,21 @@ func TestStorage_Agents_CRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAgents() returned error: %v", err)
 	}
-	if len(agents) != 0 {
-		t.Errorf("agents count after delete = %d, want 0", len(agents))
+	if len(agents) != 1 {
+		t.Errorf("agents count after delete = %d, want 1", len(agents))
+	}
+}
+
+func TestStorage_Seed_CreatesDefaultLocalAgent(t *testing.T) {
+	s := newTestStore(t)
+	agents, err := s.GetAgents()
+	if err != nil {
+		t.Fatalf("GetAgents() returned error: %v", err)
+	}
+	if len(agents) == 0 {
+		t.Fatal("expected a seeded default local agent")
+	}
+	if agents[0].Provider != "local" || agents[0].Model == "" {
+		t.Errorf("default agent mismatch: %+v", agents[0])
 	}
 }
