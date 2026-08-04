@@ -44,9 +44,9 @@ type chatRequest struct {
 }
 
 type chatResponse struct {
-	Message  ollamaMsg `json:"message"`
-	Done     bool      `json:"done"`
-	Error    string    `json:"error,omitempty"`
+	Message ollamaMsg `json:"message"`
+	Done    bool      `json:"done"`
+	Error   string    `json:"error,omitempty"`
 }
 
 func roleFor(role string) string {
