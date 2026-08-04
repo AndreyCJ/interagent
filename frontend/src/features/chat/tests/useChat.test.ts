@@ -134,4 +134,33 @@ describe('useChat', () => {
     expect(messages.value[0].role).toBe('assistant')
     expect(messages.value[0].streaming).toBeUndefined()
   })
+
+  it('clears the streaming flag on the last assistant message on llm:error', () => {
+    const { messages } = useChat()
+    fire('llm:started', {})
+    fire('llm:partial', { text: 'partial' })
+    fire('llm:error', { error: 'network timeout' })
+    expect(messages.value[messages.value.length - 1].role).toBe('assistant')
+    expect(messages.value[messages.value.length - 1].streaming).toBe(false)
+  })
+
+  it('clears the streaming flag on the last assistant message on llm:cancelled', () => {
+    const { messages } = useChat()
+    fire('llm:started', {})
+    fire('llm:partial', { text: 'partial' })
+    fire('llm:cancelled', {})
+    expect(messages.value[messages.value.length - 1].role).toBe('assistant')
+    expect(messages.value[messages.value.length - 1].streaming).toBe(false)
+  })
+
+  it('clears a stale streaming flag before sending a new user message', async () => {
+    mockWails.SendText.mockResolvedValue(undefined)
+    const { messages, send } = useChat()
+    fire('llm:started', {})
+    fire('llm:partial', { text: 'stale' })
+    await send('next question')
+    const assistant = messages.value[messages.value.length - 2]
+    expect(assistant.role).toBe('assistant')
+    expect(assistant.streaming).toBe(false)
+  })
 })

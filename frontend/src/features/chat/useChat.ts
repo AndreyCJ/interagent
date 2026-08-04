@@ -46,6 +46,8 @@ export function useChat() {
   async function send(text: string): Promise<void> {
     const trimmed = text.trim()
     if (!trimmed) return
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && last.streaming) last.streaming = false
     messages.value.push({ role: 'user', text: trimmed })
     try {
       await SendText(trimmed)
@@ -77,11 +79,15 @@ export function useChat() {
 
   onEvent('llm:error', payload => {
     const p = payload as { error?: string }
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && last.streaming) last.streaming = false
     error.value = p?.error ?? 'LLM error'
     loading.value = false
   })
 
   onEvent('llm:cancelled', () => {
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && last.streaming) last.streaming = false
     loading.value = false
   })
 
