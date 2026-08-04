@@ -72,26 +72,31 @@ func (s *Store) seed() error {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM settings`).Scan(&count); err != nil {
 		return err
 	}
-	if count > 0 {
+	if count == 0 {
+		shortcuts := []port.Shortcut{
+			{ID: "overlay_toggle", Label: "Show/Hide Overlay", Keys: []string{"cmd", "shift", "i"}, Enabled: true},
+			{ID: "overlay_mode", Label: "Toggle click-through", Keys: []string{"cmd", "shift", "space"}, Enabled: true},
+		}
+		shortcutsJSON, err := json.Marshal(shortcuts)
+		if err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(
+			`INSERT INTO settings (id, theme, language, auto_start_listening, shortcuts)
+			 VALUES (1, 'transparent', 'en', 0, ?)`,
+			shortcutsJSON,
+		); err != nil {
+			return err
+		}
+	}
+	var agents int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM agents`).Scan(&agents); err != nil {
+		return err
+	}
+	if agents > 0 {
 		return nil
 	}
-	shortcuts := []port.Shortcut{
-		{ID: "overlay_toggle", Label: "Show/Hide Overlay", Keys: []string{"cmd", "shift", "i"}, Enabled: true},
-		{ID: "overlay_mode", Label: "Toggle click-through", Keys: []string{"cmd", "shift", "space"}, Enabled: true},
-	}
-	shortcutsJSON, err := json.Marshal(shortcuts)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(
-		`INSERT INTO settings (id, theme, language, auto_start_listening, shortcuts)
-		 VALUES (1, 'transparent', 'en', 0, ?)`,
-		shortcutsJSON,
-	)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(
+	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO agents (id, name, provider, model, base_url, api_key, system_prompt, temperature)
 		 VALUES ('default-local', 'Local (Ollama)', 'local', 'qwen3:8b', 'http://localhost:11434', '',
 		         'You are a subtle interview hint assistant. Answer concisely. Answer in the same language as the question.', 0.7)`,

@@ -238,3 +238,23 @@ func TestStorage_Seed_CreatesDefaultLocalAgent(t *testing.T) {
 		t.Errorf("default agent mismatch: %+v", agents[0])
 	}
 }
+
+func TestStorage_Seed_RepairsMissingDefaultAgent(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.DeleteAgent("default-local"); err != nil {
+		t.Fatalf("DeleteAgent() returned error: %v", err)
+	}
+	if err := s.seed(); err != nil {
+		t.Fatalf("seed() returned error: %v", err)
+	}
+	agents, err := s.GetAgents()
+	if err != nil {
+		t.Fatalf("GetAgents() returned error: %v", err)
+	}
+	for _, a := range agents {
+		if a.ID == "default-local" {
+			return
+		}
+	}
+	t.Fatal("seed() should re-insert the default local agent when the agents table is empty")
+}
