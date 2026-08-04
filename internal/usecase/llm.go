@@ -59,10 +59,12 @@ func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
 		return "", err
 	}
 	if agent.ID == "" {
+		_ = l.events.Emit("llm:error", map[string]string{"error": "no active agent"})
 		return "", errors.New("no active agent")
 	}
 	engine, err := l.factory.ForAgent(agent)
 	if err != nil {
+		_ = l.events.Emit("llm:error", map[string]string{"error": err.Error()})
 		return "", err
 	}
 	l.mu.Lock()
@@ -78,6 +80,7 @@ func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
 
 	if l.writer != nil {
 		if err := l.writer.AppendMessage(role, input.Text); err != nil {
+			_ = l.events.Emit("llm:error", map[string]string{"error": err.Error()})
 			return "", err
 		}
 	}

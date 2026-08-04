@@ -227,6 +227,32 @@ func TestLLM_Generate_CancelledOnSuccess_NoResponse(t *testing.T) {
 	}
 }
 
+func TestLLM_Generate_NoAgent_EmitsErrorEvent(t *testing.T) {
+	events := newMockEvents()
+	llm := NewLLM(events, &mockSessionWriter{}, mockSessionReader{}, mockAgentProvider{}, mockFactory{})
+
+	if _, err := llm.Generate(port.LLMInput{Text: "hi"}, "user"); err == nil {
+		t.Fatal("Generate without active agent should return error")
+	}
+	if events.count("llm:error") != 1 || errorPayload(events.payload("llm:error", 0)) != "no active agent" {
+		t.Errorf("expected llm:error with 'no active agent', got %d events", events.count("llm:error"))
+	}
+}
+
+func TestLLM_Generate_FactoryError_EmitsErrorEvent(t *testing.T) {
+	events := newMockEvents()
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "openai-compatible"}}
+	factory := mockFactory{err: errors.New("decrypt api key: boom")}
+	llm := NewLLM(events, &mockSessionWriter{}, mockSessionReader{}, agent, factory)
+
+	if _, err := llm.Generate(port.LLMInput{Text: "hi"}, "user"); err == nil {
+		t.Fatal("Generate should propagate factory error")
+	}
+	if events.count("llm:error") != 1 || errorPayload(events.payload("llm:error", 0)) != "decrypt api key: boom" {
+		t.Errorf("expected llm:error with factory message, got %d events", events.count("llm:error"))
+	}
+}
+
 func TestLLM_Generate_EngineError_EmitsError_NoAssistant(t *testing.T) {
 	engine := &mockLLM{err: errors.New("network timeout")}
 	events := newMockEvents()
