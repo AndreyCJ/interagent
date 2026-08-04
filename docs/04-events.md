@@ -14,7 +14,7 @@
    - JS bindings are generated: `wails generate` → `frontend/wailsjs/`
 3. **Event names and payloads — only here.** Wails events are strings with JSON data without type checking, so their contract is documented manually.
 4. **Changing events — via PR + review** (see DoD in `03-process.md`).
-5. **STT — local (whisper.cpp). LLM — local (llama.go) or cloud OpenAI-compatible, user's choice** (ADR-001, ADR-004, ADR-005).
+5. **STT — local (whisper.cpp). LLM — local (Ollama, ADR-011) or cloud OpenAI-compatible, user's choice** (ADR-001, ADR-004).
 
 ---
 
@@ -45,6 +45,7 @@
 | Event           | Data                | When                                      |
 | --------------- | ------------------- | ----------------------------------------- |
 | `llm:started`   | `{}`                | Generation started ("typing" indicator)   |
+| `llm:partial`   | `{ text: string }`  | Streaming token (cumulative answer text)  |
 | `llm:response`  | `{ text: string }`  | Full LLM response                         |
 | `llm:error`     | `{ error: string }` | LLM error                                 |
 | `llm:cancelled` | `{}`                | Generation cancelled (new input, ADR-007) |

@@ -53,20 +53,23 @@ Frontend dependency chain — `common ➜ features ➜ app`
 
 ### Ports (interfaces)
 
-| Interface         | Methods                                                 | Defined in                     |
-| ----------------- | ------------------------------------------------------- | ------------------------------ |
-| `AudioInput`      | Start, Stop, Devices, SetDevice                         | `internal/port/audio.go`       |
-| `STT`             | Transcribe(audioData) → (text, confidence)              | `internal/port/audio.go`       |
-| `ScreenCapture`   | CaptureFull, CaptureRegion                              | `internal/port/screenshot.go`  |
-| `OCR`             | ExtractText(image) → string                             | `internal/port/screenshot.go`  |
-| `LLM`             | Complete(input, history) → string, Cancel               | `internal/port/llm.go`         |
-| `SessionStorage`  | CreateSession, GetSession, UpdateSession, DeleteSession | `internal/port/storage.go`     |
-| `AgentStorage`    | GetAgents, SaveAgent, DeleteAgent                       | `internal/port/storage.go`     |
-| `SettingsStorage` | GetSettings, SaveSettings                               | `internal/port/storage.go`     |
-| `Overlay`         | Show, Hide, Toggle, SetMode, GetMode                    | `internal/port/overlay.go`     |
-| `Hotkeys`         | Register, Unregister                                    | `internal/port/hotkeys.go`     |
-| `Permissions`     | Status, Request, OpenSettings                           | `internal/port/permissions.go` |
-| `Events`          | Emit(name, payload)                                     | `internal/port/events.go`      |
+| Interface         | Methods                                                                     | Defined in                     |
+| ----------------- | --------------------------------------------------------------------------- | ------------------------------ |
+| `AudioInput`      | Start, Stop, Devices, SetDevice                                             | `internal/port/audio.go`       |
+| `STT`             | Transcribe(audioData) → (text, confidence)                                  | `internal/port/audio.go`       |
+| `ScreenCapture`   | CaptureFull, CaptureRegion                                                  | `internal/port/screenshot.go`  |
+| `OCR`             | ExtractText(image) → string                                                 | `internal/port/screenshot.go`  |
+| `LLM`             | `Complete(input LLMInput, history, onToken) (string, error)`, `Cancel`      | `internal/port/llm.go`         |
+| `Crypto`          | `Encrypt(plaintext) (string, error)`, `Decrypt(ciphertext) (string, error)` | `internal/port/crypto.go`      |
+| `SessionStorage`  | CreateSession, GetSession, UpdateSession, DeleteSession                     | `internal/port/storage.go`     |
+| `AgentStorage`    | GetAgents, SaveAgent, DeleteAgent                                           | `internal/port/storage.go`     |
+| `SettingsStorage` | GetSettings, SaveSettings                                                   | `internal/port/storage.go`     |
+| `Overlay`         | Show, Hide, Toggle, SetMode, GetMode                                        | `internal/port/overlay.go`     |
+| `Hotkeys`         | Register, Unregister                                                        | `internal/port/hotkeys.go`     |
+| `Permissions`     | Status, Request, OpenSettings                                               | `internal/port/permissions.go` |
+| `Events`          | Emit(name, payload)                                                         | `internal/port/events.go`      |
+
+`LLM` is streaming-capable (ADR-011); the active agent's provider routes to the Ollama or OpenAI-compatible adapter via the `LLMFactory` wired in `app.go`. apiKey is encrypted at rest (ADR-004) via the `Crypto` port.
 
 `Overlay`, `Hotkeys`, `Permissions` are introduced in ADR-006 / ADR-008 — they are needed right away for the stage-2 TDD tests (overlay behavior, click-through, shortcuts) and for handling macOS permissions. `LLM.Complete` accepts `input { text, image? }` — multimodal (ADR-005).
 

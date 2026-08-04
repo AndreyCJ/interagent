@@ -44,10 +44,10 @@
 
 ## LLM (`LLMBind`)
 
-| Method             | Input          | Output | Errors | Events                                                      | Note                                         |
-| ------------------ | -------------- | ------ | ------ | ----------------------------------------------------------- | -------------------------------------------- |
-| `SendText(text)`   | `text: string` | —      | —      | `llm:started`, `llm:response`, `llm:error`, `llm:cancelled` | Sends text to the active agent               |
-| `CancelResponse()` | —              | —      | —      | `llm:cancelled`                                             | Cancels current generation (ADR-007, cancel) |
+| Method             | Input          | Output | Errors | Events                                                                     | Note                                                             |
+| ------------------ | -------------- | ------ | ------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `SendText(text)`   | `text: string` | —      | —      | `llm:started`, `llm:partial`, `llm:response`, `llm:error`, `llm:cancelled` | Sends text to the active agent (streaming)                       |
+| `CancelResponse()` | —              | —      | —      | `llm:cancelled`                                                            | Cancels current generation; cancels the current stream (ADR-007) |
 
 ## Agents (`AgentBind`)
 
