@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"errors"
+	"sync"
 	"testing"
 
 	"interagent/internal/port"
@@ -13,7 +14,6 @@ type mockLLM struct {
 	cancelled  bool
 	gotInput   port.LLMInput
 	gotHist    []port.Message
-	gotTokens  []string
 	cancelHook func()
 }
 
@@ -240,5 +240,41 @@ func TestLLM_ListLocalModels_OnlyForLocalProvider(t *testing.T) {
 	}
 	if len(models) != 0 {
 		t.Errorf("expected no models for non-local provider, got %v", models)
+	}
+}
+
+type concurrentEvents struct {
+	mu  sync.Mutex
+	set map[string][]any
+}
+
+func newConcurrentEvents() *concurrentEvents {
+	return &concurrentEvents{set: make(map[string][]any)}
+}
+
+func (e *concurrentEvents) Emit(name string, payload any) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.set[name] = append(e.set[name], payload)
+	return nil
+}
+
+func TestLLM_Cancel_ConcurrentWithGenerate_Race(t *testing.T) {
+	var wg sync.WaitGroup
+	for i := 0; i < 1000; i++ {
+		engine := &mockLLM{response: "answer"}
+		agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+		llm := NewLLM(newConcurrentEvents(), &mockSessionWriter{}, mockSessionReader{}, agent, mockFactory{engine: engine})
+
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _ = llm.Generate(port.LLMInput{Text: "q"}, "user")
+		}()
+		go func() {
+			defer wg.Done()
+			_ = llm.Cancel()
+		}()
+		wg.Wait()
 	}
 }

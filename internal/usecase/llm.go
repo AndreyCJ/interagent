@@ -65,7 +65,9 @@ func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	l.mu.Lock()
 	l.current = engine
+	l.mu.Unlock()
 
 	if l.writer != nil {
 		if err := l.writer.AppendMessage(role, input.Text); err != nil {
@@ -120,12 +122,13 @@ func (l *LLM) Cancel() error {
 		return nil
 	}
 	l.cancelled = true
+	cur := l.current
 	l.mu.Unlock()
-	if l.current == nil {
+	if cur == nil {
 		return nil
 	}
 	_ = l.events.Emit("llm:cancelled", struct{}{})
-	return l.current.Cancel()
+	return cur.Cancel()
 }
 
 func (l *LLM) ListLocalModels() ([]string, error) {

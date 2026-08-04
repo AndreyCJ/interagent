@@ -22,7 +22,7 @@ func TestStub_Complete_EmptyPrompt_ReturnsError(t *testing.T) {
 	engine := New()
 
 	if _, err := engine.Complete(port.LLMInput{}, nil, nil); err == nil {
-		t.Error("Complete('') should return error for empty prompt")
+		t.Error("Complete with empty text should return error")
 	}
 }
 
