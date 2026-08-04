@@ -6,6 +6,10 @@ export function Cancel() {
   return window['go']['main']['App']['Cancel']();
 }
 
+export function GetOllamaModels() {
+  return window['go']['main']['App']['GetOllamaModels']();
+}
+
 export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }

@@ -2,17 +2,22 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	cryptoadapter "interagent/internal/adapter/crypto"
 	eventsimpl "interagent/internal/adapter/events"
-	stubllm "interagent/internal/adapter/llm/stub"
+	"interagent/internal/adapter/llm/ollama"
+	"interagent/internal/adapter/llm/openai"
 	"interagent/internal/adapter/storage"
 	adaptersub "interagent/internal/adapter/stub"
 	"interagent/internal/adapter/window"
+	"interagent/internal/port"
 	"interagent/internal/usecase"
 )
 
@@ -35,16 +40,37 @@ type App struct {
 }
 
 func NewApp() *App {
-	store, err := storage.New(dbPath())
+	crypt, err := cryptoadapter.NewCrypto(cryptoadapter.NewKeychain())
+	if err != nil {
+		panic("crypto: " + err.Error())
+	}
+	store, err := storage.New(dbPath(), crypt)
 	if err != nil {
 		panic("storage: " + err.Error())
 	}
 
 	ev := eventsimpl.New(context.TODO())
-	llmStub := stubllm.New()
 	overlayAdapter := window.New()
 	hotkeysAdapter := adaptersub.NewHotkeys()
 	permissionsAdapter := adaptersub.NewPermissions()
+
+	factory := usecase.LLMFactory(func(cfg port.AgentConfig) (port.LLM, error) {
+		switch cfg.Provider {
+		case "local":
+			return ollama.New(cfg.BaseURL, cfg.Model, cfg.SystemPrompt), nil
+		case "openai-compatible":
+			key, err := crypt.Decrypt(cfg.APIKey)
+			if err != nil {
+				return nil, fmt.Errorf("decrypt api key: %w", err)
+			}
+			if key == "" {
+				return nil, errors.New("empty api key")
+			}
+			return openai.New(cfg.BaseURL, key, cfg.Model, cfg.SystemPrompt), nil
+		default:
+			return nil, errors.New("unknown provider: " + cfg.Provider)
+		}
+	})
 
 	overlay := usecase.NewOverlay(overlayAdapter, ev)
 	sessionUC := usecase.NewSession(store)
@@ -55,7 +81,7 @@ func NewApp() *App {
 		session:     *sessionUC,
 		audio:       *usecase.NewAudio(nil, nil),
 		screenshot:  *usecase.NewScreenshot(nil, nil),
-		llm:         *usecase.NewLLM(llmStub, ev, sessionUC),
+		llm:         *usecase.NewLLM(ev, sessionUC, sessionUC, agentUC, factory),
 		agent:       *agentUC,
 		settings:    *settingsUC,
 		overlay:     *overlay,
@@ -90,12 +116,18 @@ func (a *App) SendText(text string) error {
 	a.mu.Unlock()
 
 	go func() {
-		_, _ = a.llm.Generate(text)
-		a.mu.Lock()
-		a.generating = false
-		a.mu.Unlock()
+		defer func() {
+			a.mu.Lock()
+			a.generating = false
+			a.mu.Unlock()
+		}()
+		_, _ = a.llm.Generate(port.LLMInput{Text: text}, "user")
 	}()
 	return nil
+}
+
+func (a *App) GetOllamaModels() ([]string, error) {
+	return a.llm.ListLocalModels()
 }
 
 func (a *App) Cancel() error {

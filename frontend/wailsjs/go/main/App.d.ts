@@ -3,6 +3,8 @@
 
 export function Cancel():Promise<void>;
 
+export function GetOllamaModels():Promise<Array<string>>;
+
 export function GetVersion():Promise<string>;
 
 export function Quit():Promise<void>;
