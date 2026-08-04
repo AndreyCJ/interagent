@@ -69,6 +69,26 @@ type mockSessionReader struct {
 
 func (m mockSessionReader) GetCurrent() (port.Session, error) { return m.session, m.err }
 
+type mockSessionLive struct {
+	history []port.Message
+	err     error
+}
+
+func (m *mockSessionLive) AppendMessage(role, text string) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.history = append(m.history, port.Message{Role: role, Text: text})
+	return nil
+}
+
+func (m *mockSessionLive) GetCurrent() (port.Session, error) {
+	if m.err != nil {
+		return port.Session{}, m.err
+	}
+	return port.Session{ID: "s1", ChatHistory: m.history}, nil
+}
+
 func llmPayload(payload any) string {
 	return payload.(map[string]string)["text"]
 }
@@ -158,6 +178,25 @@ func TestLLM_Generate_PassesLanguage(t *testing.T) {
 	}
 	if engine.gotInput.Language != "ru" {
 		t.Errorf("Language = %q, want ru", engine.gotInput.Language)
+	}
+}
+
+func TestLLM_Generate_WriterReaderShared_NoDuplicatePrompt(t *testing.T) {
+	engine := &mockLLM{response: "answer"}
+	store := &mockSessionLive{
+		history: []port.Message{{Role: "user", Text: "earlier", Timestamp: 1}},
+	}
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	llm := NewLLM(newMockEvents(), store, store, agent, mockFactory{engine: engine})
+
+	if _, err := llm.Generate(port.LLMInput{Text: "current"}, "user"); err != nil {
+		t.Fatalf("Generate() returned error: %v", err)
+	}
+	if len(engine.gotHist) != 1 || engine.gotHist[0].Text != "earlier" {
+		t.Fatalf("history passed to engine = %+v, want only the earlier message", engine.gotHist)
+	}
+	if engine.gotHist[len(engine.gotHist)-1].Text == "current" {
+		t.Error("history passed to engine ends with the current prompt; prompt duplicated")
 	}
 }
 

@@ -69,6 +69,13 @@ func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
 	l.current = engine
 	l.mu.Unlock()
 
+	history := []port.Message{}
+	if l.reader != nil {
+		if cur, err := l.reader.GetCurrent(); err == nil {
+			history = cur.ChatHistory
+		}
+	}
+
 	if l.writer != nil {
 		if err := l.writer.AppendMessage(role, input.Text); err != nil {
 			return "", err
@@ -78,12 +85,6 @@ func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
 		return "", err
 	}
 
-	history := []port.Message{}
-	if l.reader != nil {
-		if cur, err := l.reader.GetCurrent(); err == nil {
-			history = cur.ChatHistory
-		}
-	}
 	onToken := func(token string) {
 		_ = l.events.Emit("llm:partial", map[string]string{"text": token})
 	}
