@@ -10,11 +10,14 @@ type Stub struct{}
 
 func New() *Stub { return &Stub{} }
 
-func (s *Stub) Complete(prompt string, history []port.Message) (string, error) {
-	if prompt == "" {
+func (s *Stub) Complete(input port.LLMInput, history []port.Message, onToken func(string)) (string, error) {
+	if input.Text == "" {
 		return "", errors.New("empty prompt")
 	}
-	return "stub answer for: " + prompt, nil
+	if onToken != nil {
+		onToken(input.Text)
+	}
+	return "stub answer for: " + input.Text, nil
 }
 
 func (s *Stub) Cancel() error { return nil }

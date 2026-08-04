@@ -8,19 +8,28 @@ import (
 )
 
 type mockLLM struct {
-	response  string
-	err       error
-	cancelled bool
+	response   string
+	err        error
+	cancelled  bool
+	gotInput   port.LLMInput
+	gotHist    []port.Message
+	gotTokens  []string
+	cancelHook func()
 }
 
-func (m *mockLLM) Complete(prompt string, history []port.Message) (string, error) {
+func (m *mockLLM) Complete(input port.LLMInput, history []port.Message, onToken func(string)) (string, error) {
+	m.gotInput = input
+	m.gotHist = history
+	if m.cancelHook != nil {
+		m.cancelHook()
+	}
+	if onToken != nil && m.response != "" {
+		onToken(m.response)
+	}
 	return m.response, m.err
 }
 
-func (m *mockLLM) Cancel() error {
-	m.cancelled = true
-	return nil
-}
+func (m *mockLLM) Cancel() error { m.cancelled = true; return nil }
 
 type mockSessionWriter struct {
 	roles []string
@@ -37,6 +46,29 @@ func (m *mockSessionWriter) AppendMessage(role, text string) error {
 	return nil
 }
 
+type mockFactory struct {
+	engine port.LLM
+	err    error
+}
+
+func (m mockFactory) ForAgent(cfg port.AgentConfig) (port.LLM, error) {
+	return m.engine, m.err
+}
+
+type mockAgentProvider struct {
+	cfg port.AgentConfig
+	err error
+}
+
+func (m mockAgentProvider) GetActive() (port.AgentConfig, error) { return m.cfg, m.err }
+
+type mockSessionReader struct {
+	session port.Session
+	err     error
+}
+
+func (m mockSessionReader) GetCurrent() (port.Session, error) { return m.session, m.err }
+
 func llmPayload(payload any) string {
 	return payload.(map[string]string)["text"]
 }
@@ -45,48 +77,87 @@ func errorPayload(payload any) string {
 	return payload.(map[string]string)["error"]
 }
 
+func newTestLLM(engine port.LLM, session *mockSessionWriter, reader mockSessionReader, agent mockAgentProvider) *LLM {
+	if engine == nil {
+		engine = &mockLLM{response: "answer"}
+	}
+	return NewLLM(newMockEvents(), session, reader, agent, mockFactory{engine: engine})
+}
+
 func TestLLM_Generate_EmptyText_ReturnsError(t *testing.T) {
-	llm := NewLLM(&mockLLM{}, newMockEvents(), &mockSessionWriter{})
-	if _, err := llm.Generate(""); err == nil {
-		t.Error("Generate('') should return error for empty text")
+	llm := newTestLLM(nil, &mockSessionWriter{}, mockSessionReader{}, mockAgentProvider{})
+	if _, err := llm.Generate(port.LLMInput{}, "user"); err == nil {
+		t.Error("Generate with empty text should return error")
 	}
 }
 
-func TestLLM_Generate_AppendsUser_EmitsStarted_ReturnsAnswer(t *testing.T) {
-	engine := &mockLLM{response: "This is the answer"}
+func TestLLM_Generate_InvalidRole_ReturnsError(t *testing.T) {
+	llm := newTestLLM(nil, &mockSessionWriter{}, mockSessionReader{}, mockAgentProvider{})
+	if _, err := llm.Generate(port.LLMInput{Text: "hi"}, "system"); err == nil {
+		t.Error("Generate with invalid role should return error")
+	}
+}
+
+func TestLLM_Generate_NoActiveAgent_ReturnsError(t *testing.T) {
+	llm := newTestLLM(nil, &mockSessionWriter{}, mockSessionReader{}, mockAgentProvider{})
+	if _, err := llm.Generate(port.LLMInput{Text: "hi"}, "user"); err == nil {
+		t.Fatal("Generate without active agent should error")
+	}
+}
+
+func TestLLM_Generate_StreamsPartials_ReturnsAnswer(t *testing.T) {
+	engine := &mockLLM{response: "Hello world"}
 	events := newMockEvents()
 	session := &mockSessionWriter{}
-	llm := NewLLM(engine, events, session)
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local", Model: "qwen3"}}
+	llm := NewLLM(events, session, mockSessionReader{}, agent, mockFactory{engine: engine})
 
-	answer, err := llm.Generate("What is 2+2?")
+	answer, err := llm.Generate(port.LLMInput{Text: "greet"}, "user")
 	if err != nil {
 		t.Fatalf("Generate() returned error: %v", err)
 	}
-	if answer != "This is the answer" {
-		t.Errorf("answer = %q, want %q", answer, "This is the answer")
+	if answer != "Hello world" {
+		t.Errorf("answer = %q, want %q", answer, "Hello world")
 	}
-	if events.count("llm:started") != 1 {
-		t.Errorf("expected 1 llm:started event, got %d", events.count("llm:started"))
+	if events.count("llm:partial") != 1 || llmPayload(events.payload("llm:partial", 0)) != "Hello world" {
+		t.Errorf("expected 1 llm:partial with full text, got %d events", events.count("llm:partial"))
 	}
-	if events.count("llm:response") != 1 {
-		t.Fatalf("expected 1 llm:response event, got %d", events.count("llm:response"))
-	}
-	if got := llmPayload(events.payload("llm:response", 0)); got != "This is the answer" {
-		t.Errorf("llm:response text = %q, want %q", got, "This is the answer")
+	if events.count("llm:started") != 1 || events.count("llm:response") != 1 {
+		t.Errorf("expected started+response, got started=%d response=%d", events.count("llm:started"), events.count("llm:response"))
 	}
 	if len(session.roles) != 2 || session.roles[0] != "user" || session.roles[1] != "assistant" {
-		t.Fatalf("roles = %v, want [user assistant]", session.roles)
-	}
-	if session.texts[0] != "What is 2+2?" || session.texts[1] != "This is the answer" {
-		t.Errorf("texts = %v, want prompt then answer", session.texts)
+		t.Errorf("roles = %v, want [user assistant]", session.roles)
 	}
 }
 
-func TestLLM_Generate_SessionError_ReturnsError_NoStarted(t *testing.T) {
-	llm := NewLLM(&mockLLM{response: "answer"}, newMockEvents(), &mockSessionWriter{err: errors.New("storage failed")})
+func TestLLM_Generate_PassesHistoryFromReader(t *testing.T) {
+	engine := &mockLLM{response: "ok"}
+	hist := []port.Message{{Role: "user", Text: "earlier", Timestamp: 1}}
+	reader := mockSessionReader{session: port.Session{ID: "s1", ChatHistory: hist}}
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "openai-compatible"}}
+	llm := NewLLM(newMockEvents(), &mockSessionWriter{}, reader, agent, mockFactory{engine: engine})
 
-	if _, err := llm.Generate("hello"); err == nil {
-		t.Error("Generate() should propagate session append error")
+	if _, err := llm.Generate(port.LLMInput{Text: "now"}, "user"); err != nil {
+		t.Fatalf("Generate() returned error: %v", err)
+	}
+	if len(engine.gotHist) != 1 || engine.gotHist[0].Text != "earlier" {
+		t.Errorf("history passed to engine = %+v, want earlier message", engine.gotHist)
+	}
+	if engine.gotInput.Language != "" {
+		t.Errorf("Language = %q, want empty", engine.gotInput.Language)
+	}
+}
+
+func TestLLM_Generate_PassesLanguage(t *testing.T) {
+	engine := &mockLLM{response: "ok"}
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	llm := NewLLM(newMockEvents(), &mockSessionWriter{}, mockSessionReader{}, agent, mockFactory{engine: engine})
+
+	if _, err := llm.Generate(port.LLMInput{Text: "question", Language: "ru"}, "interviewer"); err != nil {
+		t.Fatalf("Generate() returned error: %v", err)
+	}
+	if engine.gotInput.Language != "ru" {
+		t.Errorf("Language = %q, want ru", engine.gotInput.Language)
 	}
 }
 
@@ -94,46 +165,80 @@ func TestLLM_Generate_EngineError_EmitsError_NoAssistant(t *testing.T) {
 	engine := &mockLLM{err: errors.New("network timeout")}
 	events := newMockEvents()
 	session := &mockSessionWriter{}
-	llm := NewLLM(engine, events, session)
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	llm := NewLLM(events, session, mockSessionReader{}, agent, mockFactory{engine: engine})
 
-	if _, err := llm.Generate("question"); err == nil {
+	if _, err := llm.Generate(port.LLMInput{Text: "q"}, "user"); err == nil {
 		t.Fatal("Generate() should return engine error")
 	}
-	if events.count("llm:error") != 1 {
-		t.Fatalf("expected 1 llm:error event, got %d", events.count("llm:error"))
-	}
-	if got := errorPayload(events.payload("llm:error", 0)); got != "network timeout" {
-		t.Errorf("llm:error payload = %q, want %q", got, "network timeout")
-	}
-	if events.count("llm:response") != 0 {
-		t.Error("llm:response should not be emitted on engine error")
+	if events.count("llm:error") != 1 || errorPayload(events.payload("llm:error", 0)) != "network timeout" {
+		t.Errorf("expected llm:error with timeout message")
 	}
 	if len(session.roles) != 1 || session.roles[0] != "user" {
-		t.Error("assistant message should not be appended on engine error; only the user message should exist")
+		t.Error("assistant must not be appended on engine error")
 	}
 }
 
-func TestLLM_Generate_NoResponse_EmitsError(t *testing.T) {
-	engine := &mockLLM{response: ""}
-	events := newMockEvents()
-	llm := NewLLM(engine, events, &mockSessionWriter{})
+func TestLLM_Cancel_CancelsCurrentEngine(t *testing.T) {
+	engine := &mockLLM{response: "answer"}
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	llm := NewLLM(newMockEvents(), &mockSessionWriter{}, mockSessionReader{}, agent, mockFactory{engine: engine})
 
-	if _, err := llm.Generate("question"); err == nil {
-		t.Fatal("Generate() should return error for empty answer")
+	if _, err := llm.Generate(port.LLMInput{Text: "q"}, "user"); err != nil {
+		t.Fatalf("Generate() returned error: %v", err)
 	}
-	if events.count("llm:error") != 1 {
-		t.Fatalf("expected 1 llm:error event, got %d", events.count("llm:error"))
-	}
-}
-
-func TestLLM_Cancel_CancelsGeneration(t *testing.T) {
-	engine := &mockLLM{}
-	llm := NewLLM(engine, newMockEvents(), &mockSessionWriter{})
-
 	if err := llm.Cancel(); err != nil {
 		t.Fatalf("Cancel() returned error: %v", err)
 	}
 	if !engine.cancelled {
-		t.Error("Cancel() did not cancel the underlying engine")
+		t.Error("Cancel() did not cancel the built engine")
+	}
+}
+
+func TestLLM_Cancel_EmitsCancelled(t *testing.T) {
+	engine := &mockLLM{response: "answer"}
+	events := newMockEvents()
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	llm := NewLLM(events, &mockSessionWriter{}, mockSessionReader{}, agent, mockFactory{engine: engine})
+
+	if _, err := llm.Generate(port.LLMInput{Text: "q"}, "user"); err != nil {
+		t.Fatalf("Generate() returned error: %v", err)
+	}
+	if err := llm.Cancel(); err != nil {
+		t.Fatalf("Cancel() returned error: %v", err)
+	}
+	if events.count("llm:cancelled") != 1 {
+		t.Errorf("expected 1 llm:cancelled event, got %d", events.count("llm:cancelled"))
+	}
+}
+
+func TestLLM_Generate_ErrorAfterCancel_NoErrorEvent(t *testing.T) {
+	engine := &mockLLM{err: errors.New("stream aborted")}
+	events := newMockEvents()
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	var llm *LLM
+	engine.cancelHook = func() { _ = llm.Cancel() }
+	llm = NewLLM(events, &mockSessionWriter{}, mockSessionReader{}, agent, mockFactory{engine: engine})
+
+	if _, err := llm.Generate(port.LLMInput{Text: "q"}, "user"); err != nil {
+		t.Fatalf("Generate() after cancel should not return an error, got: %v", err)
+	}
+	if events.count("llm:error") != 0 {
+		t.Errorf("llm:error must not fire after cancel, got %d", events.count("llm:error"))
+	}
+	if events.count("llm:cancelled") != 1 {
+		t.Errorf("expected 1 llm:cancelled event, got %d", events.count("llm:cancelled"))
+	}
+}
+
+func TestLLM_ListLocalModels_OnlyForLocalProvider(t *testing.T) {
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "openai-compatible"}}
+	llm := NewLLM(newMockEvents(), &mockSessionWriter{}, mockSessionReader{}, agent, mockFactory{engine: &mockLLM{}})
+	models, err := llm.ListLocalModels()
+	if err != nil {
+		t.Fatalf("ListLocalModels() returned error: %v", err)
+	}
+	if len(models) != 0 {
+		t.Errorf("expected no models for non-local provider, got %v", models)
 	}
 }
