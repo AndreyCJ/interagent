@@ -103,4 +103,35 @@ describe('useChat', () => {
     await send('hello')
     expect(error.value).toBe('bind failed')
   })
+
+  it('streams llm:partial into an assistant message in place', () => {
+    const { messages } = useChat()
+    fire('llm:started', {})
+    fire('llm:partial', { text: 'Hel' })
+    fire('llm:partial', { text: 'Hello' })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('assistant')
+    expect(messages.value[0].text).toBe('Hello')
+    expect(messages.value[0].streaming).toBe(true)
+  })
+
+  it('finalizes the streaming message on llm:response', () => {
+    const { messages, loading } = useChat()
+    fire('llm:started', {})
+    fire('llm:partial', { text: 'part' })
+    fire('llm:response', { text: 'full answer' })
+    expect(loading.value).toBe(false)
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].text).toBe('full answer')
+    expect(messages.value[0].streaming).toBe(false)
+  })
+
+  it('keeps the existing llm:response behavior when no partial arrived', () => {
+    const { messages } = useChat()
+    fire('llm:started', {})
+    fire('llm:response', { text: 'direct' })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('assistant')
+    expect(messages.value[0].streaming).toBeUndefined()
+  })
 })
