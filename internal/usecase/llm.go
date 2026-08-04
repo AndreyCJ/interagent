@@ -135,10 +135,10 @@ func (l *LLM) Cancel() error {
 	l.cancelled = true
 	cur := l.current
 	l.mu.Unlock()
+	_ = l.events.Emit("llm:cancelled", struct{}{})
 	if cur == nil {
 		return nil
 	}
-	_ = l.events.Emit("llm:cancelled", struct{}{})
 	return cur.Cancel()
 }
 

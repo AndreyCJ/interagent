@@ -62,6 +62,16 @@ type mockAgentProvider struct {
 
 func (m mockAgentProvider) GetActive() (port.AgentConfig, error) { return m.cfg, m.err }
 
+type cancelOnGetActiveAgent struct {
+	cfg  port.AgentConfig
+	hook func()
+}
+
+func (m cancelOnGetActiveAgent) GetActive() (port.AgentConfig, error) {
+	m.hook()
+	return m.cfg, nil
+}
+
 type mockSessionReader struct {
 	session port.Session
 	err     error
@@ -268,6 +278,51 @@ func TestLLM_Generate_EngineError_EmitsError_NoAssistant(t *testing.T) {
 	}
 	if len(session.roles) != 1 || session.roles[0] != "user" {
 		t.Error("assistant must not be appended on engine error")
+	}
+}
+
+func TestLLM_Generate_CancelBeforeEngineSet_EmitsCancelled(t *testing.T) {
+	events := newMockEvents()
+	session := &mockSessionWriter{}
+	engine := &mockLLM{response: "answer"}
+	agent := cancelOnGetActiveAgent{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	var llm *LLM
+	agent.hook = func() { _ = llm.Cancel() }
+	llm = NewLLM(events, session, mockSessionReader{}, agent, mockFactory{engine: engine})
+
+	answer, err := llm.Generate(port.LLMInput{Text: "q"}, "user")
+	if err != nil {
+		t.Fatalf("Generate() after cancel should not return an error, got: %v", err)
+	}
+	if answer != "" {
+		t.Errorf("answer = %q, want empty after cancel", answer)
+	}
+	if events.count("llm:cancelled") != 1 {
+		t.Errorf("expected 1 llm:cancelled event, got %d", events.count("llm:cancelled"))
+	}
+	if events.count("llm:response") != 0 {
+		t.Errorf("llm:response must not fire after cancel, got %d", events.count("llm:response"))
+	}
+	if len(session.roles) != 1 || session.roles[0] != "user" {
+		t.Errorf("assistant must not be appended after cancel, roles = %v", session.roles)
+	}
+}
+
+func TestLLM_Generate_AppendMessageError_EmitsErrorEvent(t *testing.T) {
+	events := newMockEvents()
+	session := &mockSessionWriter{err: errors.New("write failed")}
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	llm := NewLLM(events, session, mockSessionReader{}, agent, mockFactory{engine: &mockLLM{response: "answer"}})
+
+	answer, err := llm.Generate(port.LLMInput{Text: "q"}, "user")
+	if err == nil || err.Error() != "write failed" {
+		t.Fatalf("Generate() error = %v, want 'write failed'", err)
+	}
+	if answer != "" {
+		t.Errorf("answer = %q, want empty on writer error", answer)
+	}
+	if events.count("llm:error") != 1 || errorPayload(events.payload("llm:error", 0)) != "write failed" {
+		t.Errorf("expected 1 llm:error with 'write failed', got %d events", events.count("llm:error"))
 	}
 }
 
