@@ -15,7 +15,7 @@ func NewAudio(input port.AudioInput, stt port.STT) *Audio {
 }
 
 func (a *Audio) StartListening() error {
-	if err := a.input.Start(); err != nil {
+	if err := a.input.Start(func([]byte) {}); err != nil {
 		return err
 	}
 	a.listening = true

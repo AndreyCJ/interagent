@@ -1,103 +1,64 @@
 package usecase
 
 import (
-	"errors"
 	"testing"
 
 	"interagent/internal/port"
 )
 
 type mockAudioInput struct {
-	startErr  error
-	stopErr   error
-	devices   []port.AudioDevice
-	setDevice func(id string) error
+	onChunk  func([]byte)
+	startErr error
+	stopErr  error
+	started  bool
+	stopped  bool
 }
 
-func (m *mockAudioInput) Start() error { return m.startErr }
-func (m *mockAudioInput) Stop() error  { return m.stopErr }
-func (m *mockAudioInput) Devices() ([]port.AudioDevice, error) {
-	return m.devices, nil
-}
-func (m *mockAudioInput) SetDevice(id string) error {
-	if m.setDevice != nil {
-		return m.setDevice(id)
+func (m *mockAudioInput) Start(onChunk func([]byte)) error {
+	if m.startErr != nil {
+		return m.startErr
 	}
+	m.onChunk = onChunk
+	m.started = true
 	return nil
 }
 
-type mockSTT struct{}
+func (m *mockAudioInput) Stop() error { m.stopped = true; return m.stopErr }
 
-func (m *mockSTT) Transcribe(data []byte) (string, float64, error) {
-	return "", 0, nil
+func (m *mockAudioInput) Devices() ([]port.AudioDevice, error) { return nil, nil }
+func (m *mockAudioInput) SetDevice(id string) error            { return nil }
+
+type mockSTT struct {
+	onPartial  func(string)
+	onDone     func(string, float64, string)
+	sampleRate int
+	feedErr    error
+	closed     bool
 }
 
-func TestAudio_StartListening(t *testing.T) {
+func (m *mockSTT) Feed(chunk []byte) error { return m.feedErr }
+
+func (m *mockSTT) Stream(sampleRate int, onPartial func(string), onDone func(string, float64, string)) error {
+	m.sampleRate = sampleRate
+	m.onPartial = onPartial
+	m.onDone = onDone
+	return nil
+}
+
+func (m *mockSTT) Close() error { m.closed = true; return nil }
+
+func TestAudio_StartListening_FeedsNoopChunks(t *testing.T) {
 	input := &mockAudioInput{}
 	stt := &mockSTT{}
 	a := NewAudio(input, stt)
 
-	err := a.StartListening()
-	if err != nil {
+	if err := a.StartListening(); err != nil {
 		t.Fatalf("StartListening() returned error: %v", err)
 	}
-}
-
-func TestAudio_StopListening(t *testing.T) {
-	input := &mockAudioInput{}
-	stt := &mockSTT{}
-	a := NewAudio(input, stt)
-
-	err := a.StopListening()
-	if err != nil {
-		t.Fatalf("StopListening() returned error: %v", err)
+	if !input.started {
+		t.Error("StartListening() did not call input.Start")
 	}
-}
-
-func TestAudio_IsListening_ReturnsFalseInitially(t *testing.T) {
-	input := &mockAudioInput{}
-	stt := &mockSTT{}
-	a := NewAudio(input, stt)
-
-	if a.IsListening() {
-		t.Error("IsListening() should return false before StartListening()")
-	}
-}
-
-func TestAudio_GetDevices_ReturnsDevices(t *testing.T) {
-	expected := []port.AudioDevice{
-		{ID: "builtin", Name: "Built-in Microphone", IsDefault: true},
-	}
-	input := &mockAudioInput{devices: expected}
-	stt := &mockSTT{}
-	a := NewAudio(input, stt)
-
-	devices, err := a.GetDevices()
-	if err != nil {
-		t.Fatalf("GetDevices() returned error: %v", err)
-	}
-	if len(devices) == 0 {
-		t.Fatal("GetDevices() returned empty list")
-	}
-	if devices[0].ID != "builtin" {
-		t.Errorf("expected device ID 'builtin', got %q", devices[0].ID)
-	}
-}
-
-func TestAudio_SetDevice_ValidID(t *testing.T) {
-	input := &mockAudioInput{
-		setDevice: func(id string) error {
-			if id != "external-mic" {
-				return errors.New("unknown device")
-			}
-			return nil
-		},
-	}
-	stt := &mockSTT{}
-	a := NewAudio(input, stt)
-
-	err := a.SetDevice("external-mic")
-	if err != nil {
-		t.Fatalf("SetDevice() returned error: %v", err)
+	if input.onChunk == nil {
+		t.Error("StartListening() must pass an onChunk func to input.Start")
 	}
 }

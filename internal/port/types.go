@@ -23,6 +23,11 @@ type AgentConfig struct {
 	Temperature  float64
 }
 
+type STTModelStatus struct {
+	Installed bool
+	Path      string
+}
+
 type AppSettings struct {
 	Theme              string
 	Language           string
