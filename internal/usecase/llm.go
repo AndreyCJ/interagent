@@ -51,8 +51,9 @@ func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
 	if role != "user" && role != "interviewer" {
 		return "", errors.New("invalid role: " + role)
 	}
+	engineInput := input
 	if input.Language != "" {
-		input.Text += "\nAnswer in the speaker's language (detected: " + input.Language + ")."
+		engineInput.Text += "\nAnswer in the speaker's language (detected: " + input.Language + ")."
 	}
 	l.mu.Lock()
 	l.cancelled = false
@@ -94,7 +95,7 @@ func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
 	onToken := func(token string) {
 		_ = l.events.Emit("llm:partial", map[string]string{"text": token})
 	}
-	answer, err := engine.Complete(input, history, onToken)
+	answer, err := engine.Complete(engineInput, history, onToken)
 	if err != nil {
 		l.mu.Lock()
 		cancelled := l.cancelled

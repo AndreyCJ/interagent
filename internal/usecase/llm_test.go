@@ -163,14 +163,18 @@ func TestLLM_Generate_StreamsPartials_ReturnsAnswer(t *testing.T) {
 func TestLLM_Generate_Language_AppendsInstruction(t *testing.T) {
 	engine := &mockLLM{response: "réponse"}
 	events := newMockEvents()
+	session := &mockSessionWriter{}
 	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
-	llm := NewLLM(events, &mockSessionWriter{}, mockSessionReader{}, agent, mockFactory{engine: engine})
+	llm := NewLLM(events, session, mockSessionReader{}, agent, mockFactory{engine: engine})
 
 	if _, err := llm.Generate(port.LLMInput{Text: "Question", Language: "fr"}, "user"); err != nil {
 		t.Fatalf("Generate() error: %v", err)
 	}
 	if got := engine.gotInput.Text; got != "Question\nAnswer in the speaker's language (detected: fr)." {
 		t.Errorf("engine text = %q", got)
+	}
+	if len(session.texts) != 2 || session.texts[0] != "Question" {
+		t.Errorf("persisted texts = %v, want user message with only the original prompt (no language instruction) plus assistant answer", session.texts)
 	}
 }
 
