@@ -26,11 +26,18 @@
 
 ## Audio / STT
 
-| Event                   | Data                                   | When                         |
-| ----------------------- | -------------------------------------- | ---------------------------- |
-| `audio:level`           | `{ level: number }`                    | Microphone level (throttled) |
-| `transcription:partial` | `{ text: string }`                     | Partial STT text             |
-| `transcription:done`    | `{ text: string, confidence: number }` | Final STT text               |
+| Event                   | Data                                                     | When                                                                                |
+| ----------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `audio:level`           | `{ level: number }`                                      | Microphone level (throttled)                                                        |
+| `transcription:partial` | `{ text: string }`                                       | Partial STT text                                                                    |
+| `transcription:done`    | `{ text: string, confidence: number, language: string }` | Final STT text (`language` = whisper-detected code, e.g. `"en"`, `""` when unknown) |
+
+## Models
+
+| Event                     | Data                                                 | When                                   |
+| ------------------------- | ---------------------------------------------------- | -------------------------------------- |
+| `model:download-progress` | `{ model: string, received: number, total: number }` | Whisper model download progress        |
+| `model:downloaded`        | `{ model: string }`                                  | Model downloaded and checksum-verified |
 
 ## Screenshot / OCR
 

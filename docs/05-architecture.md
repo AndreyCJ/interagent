@@ -47,7 +47,7 @@ Frontend dependency chain — `common ➜ features ➜ app`
 - `bind.go / bind_*.go` — delivery layer. Receives frontend calls, delegates to `usecase`, sends events. Knows nothing about adapters.
 - `internal/usecase` — business logic. Depends only on `internal/port`.
 - `internal/port` — interfaces and data types, no external dependencies.
-- `internal/adapter/*` — port implementations: `audio/` (microphone + system sound + STT), `llm/` (local Ollama + openai-compatible cloud), `screenshot/` (capture + OCR), `storage/` (SQLite), `window/` (overlay), `hotkeys/`, `system/` (macOS permissions).
+- `internal/adapter/*` — port implementations: `audio/` (microphone + system sound + STT), `llm/` (local Ollama + openai-compatible cloud), `models/` (whisper model downloader), `screenshot/` (capture + OCR), `storage/` (SQLite), `window/` (overlay), `hotkeys/`, `system/` (macOS permissions).
 
 **Dependency rule:** `adapter → port ← usecase ← bind ← frontend`. No circular dependencies. `port` does not depend on implementations. Changing a port (interface) — both `usecase` and all adapters change: done via ADR.
 
@@ -55,8 +55,9 @@ Frontend dependency chain — `common ➜ features ➜ app`
 
 | Interface         | Methods                                                                     | Defined in                     |
 | ----------------- | --------------------------------------------------------------------------- | ------------------------------ |
-| `AudioInput`      | Start, Stop, Devices, SetDevice                                             | `internal/port/audio.go`       |
-| `STT`             | Transcribe(audioData) → (text, confidence)                                  | `internal/port/audio.go`       |
+| `AudioInput`      | Start(onChunk), Stop, Devices, SetDevice                                    | `internal/port/audio.go`       |
+| `STT`             | Feed, Stream(sampleRate, onPartial, onDone), Close                          | `internal/port/audio.go`       |
+| `ModelStore`      | Status(model), Download(model, onProgress)                                  | `internal/port/models.go`      |
 | `ScreenCapture`   | CaptureFull, CaptureRegion                                                  | `internal/port/screenshot.go`  |
 | `OCR`             | ExtractText(image) → string                                                 | `internal/port/screenshot.go`  |
 | `LLM`             | `Complete(input LLMInput, history, onToken) (string, error)`, `Cancel`      | `internal/port/llm.go`         |

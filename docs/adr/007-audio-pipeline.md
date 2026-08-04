@@ -1,7 +1,7 @@
 # ADR-007: Audio pipeline — sources, phrase end detection, generation cancellation
 
 **Date:** 2026-08-01
-**Status:** Proposed
+**Status:** Accepted
 **Related documents:** 01-tz.md §2.1/§3/§8 (stage 3), 02-nfr.md (NFR-01, NFR-02), 04-events.md, 05-architecture.md §3, ADR-001, ADR-005, ADR-008
 
 ---

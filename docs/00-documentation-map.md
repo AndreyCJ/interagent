@@ -24,7 +24,7 @@
 | `adr/004-...md`        | ADR-004: cloud LLM (OpenAI-compatible), apiKey encryption, consent                   | Accepted | Human + Agent  |
 | `adr/005-...md`        | ADR-005: inference without cgo (except whisper.cpp), llama.go, multimodal port       | Proposed | Human + Agent  |
 | `adr/006-...md`        | ADR-006: Overlay and Hotkeys ports, toggleable click-through mode                    | Accepted | Human + Agent  |
-| `adr/007-...md`        | ADR-007: audio pipeline (SCK, endpoint detection, cancel)                            | Proposed | Human + Agent  |
+| `adr/007-...md`        | ADR-007: audio pipeline (SCK, endpoint detection, cancel)                            | Accepted | Human + Agent  |
 | `adr/008-...md`        | ADR-008: macOS permissions (microphone, screen recording, Accessibility)             | Accepted | Human + Agent  |
 | `adr/009-...md`        | ADR-009: narrow storage interfaces (ISP)                                             | Accepted | Human + Agent  |
 | `adr/010-...md`        | ADR-010: events port (Event Bus) for async usecase → frontend events                 | Accepted | Human + Agent  |

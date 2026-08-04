@@ -25,13 +25,13 @@
 
 ## Audio (`AudioBind`)
 
-| Method               | Input        | Output          | Errors             | Events                           | Note                                                   |
-| -------------------- | ------------ | --------------- | ------------------ | -------------------------------- | ------------------------------------------------------ |
-| `StartListening()`   | —            | —               | permission, device | `audio:level`, `transcription:*` | Starts the stream (microphone + system sound, ADR-007) |
-| `StopListening()`    | —            | —               | —                  | —                                | Stops the stream                                       |
-| `IsListening()`      | —            | `boolean`       | —                  | —                                | —                                                      |
-| `GetAudioDevices()`  | —            | `AudioDevice[]` | —                  | —                                | List of microphones                                    |
-| `SetAudioDevice(id)` | `id: string` | —               | not found          | —                                | Select the active microphone                           |
+| Method               | Input        | Output          | Errors             | Events                           | Note                                                                                                           |
+| -------------------- | ------------ | --------------- | ------------------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `StartListening()`   | —            | —               | permission, device | `audio:level`, `transcription:*` | Starts both sources (microphone + system sound, ADR-007); returns an error if a required permission is missing |
+| `StopListening()`    | —            | —               | —                  | —                                | Stops the stream                                                                                               |
+| `IsListening()`      | —            | `boolean`       | —                  | —                                | —                                                                                                              |
+| `GetAudioDevices()`  | —            | `AudioDevice[]` | —                  | —                                | Microphone devices only                                                                                        |
+| `SetAudioDevice(id)` | `id: string` | —               | not found          | —                                | Microphone devices only                                                                                        |
 
 ## Screenshot (`ScreenshotBind`)
 
@@ -58,6 +58,13 @@
 | `SetActiveAgent(id)` | `id: string`  | —               | not found  | `agent:changed` | Changes the active agent    |
 | `SaveAgent(cfg)`     | `AgentConfig` | `AgentConfig`   | validation | —               | Create/update (by `id`)     |
 | `DeleteAgent(id)`    | `id: string`  | —               | not found  | —               | Deletes an agent            |
+
+## Models (`ModelsBind`)
+
+| Method                | Input | Output           | Errors            | Events                                                     | Note                                          |
+| --------------------- | ----- | ---------------- | ----------------- | ---------------------------------------------------------- | --------------------------------------------- |
+| `DownloadSTTModel()`  | —     | —                | —                 | `model:download-progress`, `model:downloaded`, `app:error` | Downloads ggml-base + silero-vad (async)      |
+| `GetSTTModelStatus()` | —     | `STTModelStatus` | storage, download | —                                                          | Installed + path of the primary whisper model |
 
 ## Settings (`SettingsBind`)
 
