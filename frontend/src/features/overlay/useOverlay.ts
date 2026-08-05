@@ -4,7 +4,7 @@ import { onEvent } from '../../common/utils/events'
 import { GetOverlayMode, HideOverlay, SetOverlayMode, ShowOverlay } from '../../common/utils/wails'
 
 export function useOverlay() {
-  const mode = ref<OverlayMode>('click-through')
+  const mode = ref<OverlayMode>('interactive')
 
   async function loadMode(): Promise<void> {
     try {

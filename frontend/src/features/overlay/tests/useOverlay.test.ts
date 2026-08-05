@@ -31,9 +31,9 @@ describe('useOverlay', () => {
     vi.clearAllMocks()
   })
 
-  it('defaults to click-through mode', () => {
+  it('defaults to interactive mode', () => {
     const { mode } = useOverlay()
-    expect(mode.value).toBe('click-through')
+    expect(mode.value).toBe('interactive')
   })
 
   it('updates mode on overlay:mode event', () => {
