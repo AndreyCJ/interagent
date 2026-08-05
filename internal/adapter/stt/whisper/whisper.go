@@ -13,7 +13,7 @@ const modelSampleRate = 16000
 
 // Tunable stream constants (validated by the CI integration test).
 const (
-	vadThreshold = 0.6
+	vadThreshold  = 0.6
 	windowSeconds = 5
 )
 

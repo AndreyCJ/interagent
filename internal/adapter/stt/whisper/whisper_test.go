@@ -11,13 +11,13 @@ import (
 )
 
 type fakeContext struct {
-	detected    string
-	setLang     []string
-	vad         bool
-	vadModel    string
-	vadThresh   float32
-	processFn   func(window []float32, enc whispercpp.EncoderBeginCallback, seg whispercpp.SegmentCallback, prog whispercpp.ProgressCallback) error
-	processes   int
+	detected  string
+	setLang   []string
+	vad       bool
+	vadModel  string
+	vadThresh float32
+	processFn func(window []float32, enc whispercpp.EncoderBeginCallback, seg whispercpp.SegmentCallback, prog whispercpp.ProgressCallback) error
+	processes int
 }
 
 func (f *fakeContext) SetLanguage(l string) error { f.setLang = append(f.setLang, l); return nil }
