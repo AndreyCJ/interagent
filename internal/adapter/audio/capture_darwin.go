@@ -163,11 +163,14 @@ func (m *MicrophoneCapture) SetDevice(id string) error            { return nil }
 
 // pump delivers captured float32 frames to onChunk as little-endian bytes.
 func (m *MicrophoneCapture) pump(frames []float32) {
-	if m.onChunk == nil {
+	m.mu.Lock()
+	cb := m.onChunk
+	m.mu.Unlock()
+	if cb == nil {
 		return
 	}
 	mono := toMonoFloat32(frames, 1)
-	m.onChunk(float32ToBytes(mono))
+	cb(float32ToBytes(mono))
 }
 
 type SystemCapture struct {
@@ -262,9 +265,12 @@ func (s *SystemCapture) Devices() ([]port.AudioDevice, error) { return nil, nil 
 func (s *SystemCapture) SetDevice(id string) error            { return nil }
 
 func (s *SystemCapture) pump(frames []float32) {
-	if s.onChunk == nil {
+	s.mu.Lock()
+	cb := s.onChunk
+	s.mu.Unlock()
+	if cb == nil {
 		return
 	}
 	mono := toMonoFloat32(frames, 1)
-	s.onChunk(float32ToBytes(mono))
+	cb(float32ToBytes(mono))
 }
