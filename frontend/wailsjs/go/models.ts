@@ -112,6 +112,20 @@ export namespace port {
 	        this.Timestamp = source["Timestamp"];
 	    }
 	}
+	export class STTModelStatus {
+	    Installed: boolean;
+	    Path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new STTModelStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Installed = source["Installed"];
+	        this.Path = source["Path"];
+	    }
+	}
 	export class Session {
 	    ID: string;
 	    ChatHistory: Message[];

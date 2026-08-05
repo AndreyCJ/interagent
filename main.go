@@ -38,7 +38,8 @@ func main() {
 	app := NewApp()
 
 	sessionBind := NewSessionBind(&app.session)
-	audioBind := NewAudioBind(&app.audio)
+	audioBind := NewAudioBind(app)
+	modelsBind := NewModelsBind(app)
 	screenshotBind := NewScreenshotBind(&app.screenshot)
 	llmBind := NewLLMBind(app)
 	agentBind := NewAgentBind(&app.agent)
@@ -71,6 +72,7 @@ func main() {
 			app,
 			sessionBind,
 			audioBind,
+			modelsBind,
 			screenshotBind,
 			llmBind,
 			agentBind,
