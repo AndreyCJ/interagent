@@ -6,9 +6,21 @@ package audio
 import (
 	"encoding/binary"
 	"math"
+	"strings"
 )
 
 const CaptureSampleRate = 48000
+
+// systemStartErrorMsg returns the raw SCStream start error if one was
+// reported, otherwise a stable fallback. The ObjC adapter writes the
+// ScreenCaptureKit code + description into the error buffer on failure, but an
+// empty buffer must still produce a diagnostic (ADR-008: no silent failures).
+func systemStartErrorMsg(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return "screencapturekit: stream start failed"
+	}
+	return raw
+}
 
 // toMonoFloat32 averages interleaved channel samples into mono.
 func toMonoFloat32(interleaved []float32, channels int) []float32 {

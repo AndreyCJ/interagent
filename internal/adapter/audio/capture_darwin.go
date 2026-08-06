@@ -221,10 +221,7 @@ func (s *SystemCapture) Start(onChunk func([]byte)) error {
 	var errBuf [512]C.char
 	stream := C.iasystem_start(delegate, &errBuf[0], C.int(len(errBuf)))
 	if stream == nil {
-		msg := C.GoString(&errBuf[0])
-		if msg == "" {
-			msg = "screencapturekit: stream start failed"
-		}
+		msg := systemStartErrorMsg(C.GoString(&errBuf[0]))
 		C.iasystem_release(delegate)
 		cbMu.Lock()
 		delete(callbacks, userPtr)

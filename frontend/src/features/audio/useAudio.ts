@@ -1,5 +1,10 @@
 import { ref } from 'vue'
-import { IsListening, StartListening, StopListening } from '../../common/utils/wails'
+import {
+  IsListening,
+  OpenPermissionSettings,
+  StartListening,
+  StopListening,
+} from '../../common/utils/wails'
 
 export function useAudio() {
   const isListening = ref(false)
@@ -32,5 +37,9 @@ export function useAudio() {
     }
   }
 
-  return { isListening, error, busy, load, toggle }
+  async function openSettings(): Promise<void> {
+    await OpenPermissionSettings('screen-recording')
+  }
+
+  return { isListening, error, busy, load, toggle, openSettings }
 }

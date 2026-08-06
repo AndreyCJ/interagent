@@ -18,7 +18,8 @@ import (
 	modelsadapter "interagent/internal/adapter/models"
 	"interagent/internal/adapter/storage"
 	whisperadapter "interagent/internal/adapter/stt/whisper"
-	adaptersub "interagent/internal/adapter/stub"
+	"interagent/internal/adapter/stub"
+	"interagent/internal/adapter/system"
 	"interagent/internal/adapter/window"
 	"interagent/internal/port"
 	"interagent/internal/usecase"
@@ -57,8 +58,8 @@ func NewApp() *App {
 
 	ev := eventsimpl.New(context.TODO())
 	overlayAdapter := window.New()
-	hotkeysAdapter := adaptersub.NewHotkeys()
-	permissionsAdapter := adaptersub.NewPermissions()
+	hotkeysAdapter := stub.NewHotkeys()
+	permissionsAdapter := system.NewPermissions()
 
 	factory := usecase.LLMFactory(func(cfg port.AgentConfig) (port.LLM, error) {
 		switch cfg.Provider {
@@ -122,6 +123,7 @@ func (a *App) startup(ctx context.Context) {
 	runtime.WindowSetAlwaysOnTop(ctx, true)
 	mode, _ := a.overlay.GetMode()
 	_ = a.overlay.SetMode(mode)
+	_ = a.permissions.CheckAll()
 }
 
 func (a *App) GetVersion() string {

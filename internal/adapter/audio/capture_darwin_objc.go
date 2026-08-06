@@ -175,7 +175,8 @@ void *iasystem_start(void *delegate, char *errBuf, int errLen) {
 
     [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
         if (error) {
-            errDesc = [[error localizedDescription] copy];
+            errDesc = [NSString stringWithFormat:@"SCError %ld (%@): %@",
+                       (long)error.code, error.domain, error.localizedDescription];
             dispatch_semaphore_signal(sem);
             return;
         }
@@ -202,13 +203,16 @@ void *iasystem_start(void *delegate, char *errBuf, int errLen) {
                           sampleHandlerQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)
                                        error:&outErr];
         if (!added) {
-            errDesc = outErr ? [[outErr localizedDescription] copy] : @"cannot add audio stream output";
+            errDesc = outErr ? [NSString stringWithFormat:@"SCError %ld (%@): %@",
+                                        (long)outErr.code, outErr.domain, outErr.localizedDescription]
+                             : @"cannot add audio stream output";
             dispatch_semaphore_signal(sem);
             return;
         }
         [stream startCaptureWithCompletionHandler:^(NSError *err) {
             if (err) {
-                errDesc = [[err localizedDescription] copy];
+                errDesc = [NSString stringWithFormat:@"SCError %ld (%@): %@",
+                           (long)err.code, err.domain, err.localizedDescription];
                 stream = nil;
             }
             dispatch_semaphore_signal(sem);

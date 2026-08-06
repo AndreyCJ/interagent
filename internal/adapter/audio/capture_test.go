@@ -2,6 +2,7 @@ package audio
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -24,5 +25,18 @@ func TestBytesFloat32_RoundTrip(t *testing.T) {
 		if back[i] != in[i] {
 			t.Errorf("round trip %d: %v != %v", i, back[i], in[i])
 		}
+	}
+}
+
+func TestSystemStartErrorMsg_EmptyRawUsesFallback(t *testing.T) {
+	if msg := systemStartErrorMsg(""); !strings.Contains(msg, "stream start failed") {
+		t.Errorf("empty raw -> %q, want fallback containing %q", msg, "stream start failed")
+	}
+}
+
+func TestSystemStartErrorMsg_PassesThroughRealError(t *testing.T) {
+	raw := "SCError -3803 missingEntitlements: capture requires entitlements"
+	if msg := systemStartErrorMsg(raw); msg != raw {
+		t.Errorf("raw %q -> %q, want passthrough", raw, msg)
 	}
 }

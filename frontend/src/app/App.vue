@@ -7,7 +7,7 @@ import { useAudio } from '../features/audio/useAudio'
 import MicButton from '../features/audio/MicButton.vue'
 
 const { mode, loadMode, toggleMode, show, hide } = useOverlay()
-const { isListening, error, load, toggle } = useAudio()
+const { isListening, error, load, toggle, openSettings } = useAudio()
 
 onMounted(() => {
   loadMode()
@@ -20,6 +20,7 @@ onMounted(() => {
     <div class="controls">
       <MicButton :listening="isListening" @toggle="toggle" />
       <span v-if="error" class="err">{{ error }}</span>
+      <button v-if="error" @click="openSettings">Open Settings</button>
       <button @click="toggleMode">Mode: {{ mode }}</button>
       <button @click="show">Show</button>
       <button @click="hide">Hide</button>

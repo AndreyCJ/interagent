@@ -46,7 +46,7 @@ interface Permissions {
 - `usecase/permissions`: at startup collects statuses → `app:permission { permission, granted }` event.
 - Adapter `adapter/system/` (macOS platform calls).
 - Frontend: onboarding panel in settings; when a permission is missing — a clear card with an "Open Settings" button. On returning to the app the status is re-checked.
-- Info.plist: `NSMicrophoneUsageDescription` (explanation text), `NSScreenCaptureUsageDescription` (for screen recording).
+- Info.plist: `NSMicrophoneUsageDescription` (explanation text). There is **no** usage-description key for screen recording — TCC grants for ScreenCaptureKit are keyed to the app's code-signature identity and are granted via System Settings (Screen & System Audio Recording pane), not via Info.plist.
 
 **Pros:**
 

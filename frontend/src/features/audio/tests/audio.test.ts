@@ -8,6 +8,7 @@ const { mockWails } = vi.hoisted(() => ({
     IsListening: vi.fn(),
     StartListening: vi.fn(),
     StopListening: vi.fn(),
+    OpenPermissionSettings: vi.fn(),
   },
 }))
 
@@ -106,5 +107,12 @@ describe('useAudio', () => {
     resolveStart()
     await first
     expect(busy.value).toBe(false)
+  })
+
+  it('openSettings opens the screen-recording settings pane', async () => {
+    mockWails.OpenPermissionSettings.mockResolvedValue(undefined)
+    const { openSettings } = useAudio()
+    await openSettings()
+    expect(mockWails.OpenPermissionSettings).toHaveBeenCalledWith('screen-recording')
   })
 })
