@@ -33,6 +33,10 @@ type AppSettings struct {
 	Language           string
 	Shortcuts          []Shortcut
 	AutoStartListening bool
+	// SttModel is the whisper model size key: "tiny", "base" or "small".
+	SttModel string
+	// SttLanguage is the whisper language: "auto", "ru" or "en".
+	SttLanguage string
 }
 
 type Shortcut struct {

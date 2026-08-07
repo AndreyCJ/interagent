@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	_ "modernc.org/sqlite"
 
@@ -64,6 +65,39 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+	return s.addSettingsColumns()
+}
+
+func (s *Store) addSettingsColumns() error {
+	rows, err := s.db.Query(`PRAGMA table_info(settings)`)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	rows.Close()
+	for _, ddl := range []string{
+		"stt_model TEXT NOT NULL DEFAULT 'base'",
+		"stt_language TEXT NOT NULL DEFAULT 'auto'",
+	} {
+		col := ddl[:strings.Index(ddl, " ")]
+		if have[col] {
+			continue
+		}
+		if _, err := s.db.Exec(`ALTER TABLE settings ADD COLUMN ` + ddl); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -82,8 +116,8 @@ func (s *Store) seed() error {
 			return err
 		}
 		if _, err := s.db.Exec(
-			`INSERT INTO settings (id, theme, language, auto_start_listening, shortcuts)
-			 VALUES (1, 'transparent', 'en', 0, ?)`,
+			`INSERT INTO settings (id, theme, language, auto_start_listening, shortcuts, stt_model, stt_language)
+			 VALUES (1, 'transparent', 'en', 0, ?, 'base', 'auto')`,
 			shortcutsJSON,
 		); err != nil {
 			return err
@@ -214,8 +248,8 @@ func (s *Store) GetSettings() (port.AppSettings, error) {
 		autoStart int
 	)
 	err := s.db.QueryRow(
-		`SELECT theme, language, auto_start_listening, shortcuts FROM settings WHERE id = 1`,
-	).Scan(&out.Theme, &out.Language, &autoStart, &shortcuts)
+		`SELECT theme, language, auto_start_listening, shortcuts, stt_model, stt_language FROM settings WHERE id = 1`,
+	).Scan(&out.Theme, &out.Language, &autoStart, &shortcuts, &out.SttModel, &out.SttLanguage)
 	if err != nil {
 		return port.AppSettings{}, err
 	}
@@ -236,9 +270,9 @@ func (s *Store) SaveSettings(cfg port.AppSettings) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		`UPDATE settings SET theme = ?, language = ?, auto_start_listening = ?, shortcuts = ?
+		`UPDATE settings SET theme = ?, language = ?, auto_start_listening = ?, shortcuts = ?, stt_model = ?, stt_language = ?
 		 WHERE id = 1`,
-		cfg.Theme, cfg.Language, enabled, shortcuts,
+		cfg.Theme, cfg.Language, enabled, shortcuts, cfg.SttModel, cfg.SttLanguage,
 	)
 	return err
 }

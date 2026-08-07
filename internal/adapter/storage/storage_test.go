@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"testing"
 
 	"interagent/internal/port"
@@ -140,6 +141,12 @@ func TestStorage_GetSettings_ReturnsSeededDefaults(t *testing.T) {
 	if sc, ok := ids["overlay_mode"]; !ok || !sc.Enabled {
 		t.Errorf("default shortcut overlay_mode should exist and be enabled: %+v", sc)
 	}
+	if settings.SttModel != "base" {
+		t.Errorf("SttModel = %q, want base", settings.SttModel)
+	}
+	if settings.SttLanguage != "auto" {
+		t.Errorf("SttLanguage = %q, want auto", settings.SttLanguage)
+	}
 }
 
 func TestStorage_SaveAndGetSettings(t *testing.T) {
@@ -148,6 +155,8 @@ func TestStorage_SaveAndGetSettings(t *testing.T) {
 	custom := port.AppSettings{
 		Theme:              "dark",
 		Language:           "ru",
+		SttModel:           "small",
+		SttLanguage:        "ru",
 		AutoStartListening: true,
 		Shortcuts: []port.Shortcut{
 			{ID: "overlay_toggle", Label: "Show/Hide", Keys: []string{"cmd", "shift", "h"}, Enabled: true},
@@ -166,6 +175,41 @@ func TestStorage_SaveAndGetSettings(t *testing.T) {
 	}
 	if len(got.Shortcuts) != 1 || got.Shortcuts[0].ID != "overlay_toggle" {
 		t.Errorf("shortcuts mismatch: %+v", got.Shortcuts)
+	}
+	if got.SttModel != "small" || got.SttLanguage != "ru" {
+		t.Errorf("STT settings = (%q, %q), want (small, ru)", got.SttModel, got.SttLanguage)
+	}
+}
+
+func TestStorage_Migrate_AddsSTTColumns(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:mem-migrate?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE settings (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		theme TEXT NOT NULL,
+		language TEXT NOT NULL,
+		auto_start_listening INTEGER NOT NULL,
+		shortcuts TEXT NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO settings (id, theme, language, auto_start_listening, shortcuts)
+		VALUES (1, 'transparent', 'en', 0, '[]')`); err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{db: db, crypt: testCrypto{}}
+	if err := s.migrate(); err != nil {
+		t.Fatalf("migrate() error: %v", err)
+	}
+	var model, lang string
+	if err := db.QueryRow(`SELECT stt_model, stt_language FROM settings WHERE id = 1`).Scan(&model, &lang); err != nil {
+		t.Fatalf("stt columns missing after migrate: %v", err)
+	}
+	if model != "base" || lang != "auto" {
+		t.Errorf("defaults after migrate = (%q, %q), want (base, auto)", model, lang)
 	}
 }
 
