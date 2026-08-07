@@ -56,7 +56,7 @@ func (a *AudioPipeline) Start() error {
 	a.mu.Unlock()
 
 	go func() {
-		if err := a.stt.Stream(captureSampleRate, a.onPartial, a.onDone); err != nil {
+		if err := a.stt.Stream(captureSampleRate, nil, a.onDone); err != nil {
 			_ = a.events.Emit("app:error", map[string]string{"stage": "stt", "error": err.Error()})
 		}
 	}()
@@ -84,13 +84,6 @@ func (a *AudioPipeline) IsRunning() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.running
-}
-
-func (a *AudioPipeline) onPartial(text string) {
-	if text == "" {
-		return
-	}
-	_ = a.events.Emit("transcription:partial", map[string]string{"text": text})
 }
 
 func (a *AudioPipeline) onDone(text string, confidence float64, language string) {

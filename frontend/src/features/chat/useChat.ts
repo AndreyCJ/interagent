@@ -91,5 +91,12 @@ export function useChat() {
     loading.value = false
   })
 
+  onEvent('transcription:done', payload => {
+    const p = payload as { text?: string; source?: string }
+    if (p?.text && p.source === 'mic') {
+      messages.value.push({ role: 'user', text: p.text })
+    }
+  })
+
   return { messages, loading, error, load, send }
 }

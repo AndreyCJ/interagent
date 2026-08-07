@@ -235,7 +235,7 @@ type testError struct{}
 
 func (e *testError) Error() string { return "boom" }
 
-func TestAudioPipeline_Partial_EmitsPartial(t *testing.T) {
+func TestAudioPipeline_NoPartialEvents(t *testing.T) {
 	events := newEventRecorder()
 	stt := &mockPipelineSTT{}
 	p := NewAudioPipeline(port.AudioSourceSystem, events, &mockPipelineInput{}, stt, &mockPipelineLLM{}, &mockHistory{})
@@ -245,13 +245,12 @@ func TestAudioPipeline_Partial_EmitsPartial(t *testing.T) {
 	defer p.Stop()
 
 	waitFor(t, func() bool { return stt.sampleRateValue() == 48000 })
+	// The pipeline registers no partial callback; the mock's partial
+	// invocations are nil-safe and must not surface as events.
 	stt.partial("Hel")
 	stt.partial("Hello")
-	if events.count("transcription:partial") != 2 {
-		t.Fatalf("transcription:partial count = %d, want 2", events.count("transcription:partial"))
-	}
-	if events.payload("transcription:partial", 1).(map[string]string)["text"] != "Hello" {
-		t.Error("second partial text mismatch")
+	if events.count("transcription:partial") != 0 {
+		t.Errorf("transcription:partial count = %d, want 0", events.count("transcription:partial"))
 	}
 }
 

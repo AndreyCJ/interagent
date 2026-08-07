@@ -163,4 +163,28 @@ describe('useChat', () => {
     expect(assistant.role).toBe('assistant')
     expect(assistant.streaming).toBe(false)
   })
+
+  it('appends mic transcription as a user message on transcription:done', () => {
+    const { messages } = useChat()
+    fire('transcription:done', {
+      text: 'Hello world',
+      confidence: 0.9,
+      language: 'en',
+      source: 'mic',
+    })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('user')
+    expect(messages.value[0].text).toBe('Hello world')
+  })
+
+  it('ignores system transcription for user messages', () => {
+    const { messages } = useChat()
+    fire('transcription:done', {
+      text: 'Speaker audio',
+      confidence: 0.8,
+      language: 'en',
+      source: 'system',
+    })
+    expect(messages.value).toEqual([])
+  })
 })
