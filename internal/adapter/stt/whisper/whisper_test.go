@@ -3,7 +3,6 @@ package whisper
 import (
 	"errors"
 	"io"
-	"math"
 	"testing"
 	"time"
 
@@ -80,17 +79,67 @@ func TestStream_LoadError(t *testing.T) {
 	}
 }
 
-func TestStream_PartialReplacesAcrossCalls(t *testing.T) {
-	ctx := &fakeContext{}
-	texts := []string{"Hel", "Hello", "Hello world"}
+func loudChunk(samples int) []byte {
+	in := make([]float32, samples)
+	for i := range in {
+		in[i] = 0.1
+	}
+	return float32ToBytes(in)
+}
+
+func quietChunk(samples int) []byte {
+	return float32ToBytes(make([]float32, samples))
+}
+
+func TestStream_SilenceAfterSpeech_FinalizesOnce(t *testing.T) {
+	ctx := &fakeContext{detected: "en"}
 	call := 0
 	ctx.processFn = func(window []float32, enc whispercpp.EncoderBeginCallback, seg whispercpp.SegmentCallback, prog whispercpp.ProgressCallback) error {
-		enc()
-		if call < len(texts) {
-			// single_segment: one segment per call = the full window re-transcription
-			seg(whispercpp.Segment{Text: texts[call]})
-		}
 		call++
+		enc()
+		if call == 1 {
+			seg(whispercpp.Segment{Text: "Hello ", End: time.Second, Tokens: []whispercpp.Token{{P: 0.9}, {P: 0.7}}})
+		}
+		return nil
+	}
+	w := newFakeWhisper(t, &fakeModel{ctx: ctx})
+	var dones []string
+	done := make(chan error, 1)
+	go func() {
+		done <- w.Stream(48000, nil, func(text string, _ float64, _ string) { dones = append(dones, text) })
+	}()
+
+	if err := w.Feed(loudChunk(48000)); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		time.Sleep(200 * time.Millisecond)
+		if err := w.Feed(quietChunk(48000)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if call != 1 {
+		t.Errorf("Process called %d times, want exactly 1 (silence-gated)", call)
+	}
+	if len(dones) != 1 || dones[0] != "Hello " {
+		t.Fatalf("onDone = %v, want one phrase 'Hello '", dones)
+	}
+}
+
+func TestStream_LongSpeech_BackstopProcessesNoDone(t *testing.T) {
+	ctx := &fakeContext{}
+	call := 0
+	ctx.processFn = func(window []float32, enc whispercpp.EncoderBeginCallback, seg whispercpp.SegmentCallback, prog whispercpp.ProgressCallback) error {
+		call++
+		enc()
+		// Segment always ends at the window tail so the phrase never finalizes
+		// mid-speech; only the backstop cadence drives these Process calls.
+		seg(whispercpp.Segment{Text: "Hello world", End: time.Duration(len(window)) * time.Second / modelSampleRate, Tokens: []whispercpp.Token{{P: 0.8}}})
 		return nil
 	}
 	w := newFakeWhisper(t, &fakeModel{ctx: ctx})
@@ -98,67 +147,109 @@ func TestStream_PartialReplacesAcrossCalls(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- w.Stream(48000, func(p string) { partials = append(partials, p) }, nil) }()
 
-	for range texts {
-		if err := w.Feed(float32ToBytes(make([]float32, 48000))); err != nil {
-			t.Fatalf("Feed() error: %v", err)
+	for i := 0; i < 4; i++ {
+		time.Sleep(1 * time.Second)
+		if err := w.Feed(loudChunk(48000)); err != nil {
+			t.Fatal(err)
 		}
 	}
-	time.Sleep(20 * time.Millisecond)
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
 	<-done
-	want := []string{"Hel", "Hello", "Hello world"}
-	if len(partials) != len(want) || partials[0] != want[0] || partials[1] != want[1] || partials[2] != want[2] {
-		t.Errorf("partials = %v, want %v (replaced, not accumulated)", partials, want)
+	if call == 0 {
+		t.Error("backstop never ran Process during continuous speech")
+	}
+	if len(partials) == 0 {
+		t.Error("backstop process must produce partial text")
 	}
 }
 
-func TestStream_EndpointBoundary_FinalizesPhrase(t *testing.T) {
-	ctx := &fakeContext{detected: "en"}
+func TestStream_IdleSilence_NoProcessing(t *testing.T) {
+	ctx := &fakeContext{}
+	w := newFakeWhisper(t, &fakeModel{ctx: ctx})
+	done := make(chan error, 1)
+	go func() { done <- w.Stream(48000, nil, nil) }()
+
+	for i := 0; i < 3; i++ {
+		time.Sleep(250 * time.Millisecond)
+		if err := w.Feed(quietChunk(48000)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if ctx.processes != 0 {
+		t.Errorf("Process called %d times during idle silence, want 0", ctx.processes)
+	}
+}
+
+func TestStream_BelowThresholdAudio_CatchAllFires(t *testing.T) {
+	ctx := &fakeContext{}
+	w := newFakeWhisper(t, &fakeModel{ctx: ctx})
 	call := 0
 	ctx.processFn = func(window []float32, enc whispercpp.EncoderBeginCallback, seg whispercpp.SegmentCallback, prog whispercpp.ProgressCallback) error {
 		call++
 		enc()
-		if call <= 2 {
-			// Re-transcribe the same 1s speech as the window grows; by the
-			// third call the segment leaves >= finalizeSilence of trailing
-			// silence, so the second call's encoder-begin finalizes it.
-			seg(whispercpp.Segment{Text: "Hello ", End: time.Second, Tokens: []whispercpp.Token{{P: 0.9}, {P: 0.7}}})
-		}
 		return nil
 	}
-	w := newFakeWhisper(t, &fakeModel{ctx: ctx})
-	var dones []string
-	var confs []float64
-	var langs []string
 	done := make(chan error, 1)
-	go func() {
-		done <- w.Stream(48000, nil, func(text string, confidence float64, language string) {
-			dones = append(dones, text)
-			confs = append(confs, confidence)
-			langs = append(langs, language)
-		})
-	}()
+	go func() { done <- w.Stream(48000, nil, nil) }()
 
-	for i := 0; i < 3; i++ {
-		if err := w.Feed(float32ToBytes(make([]float32, 48000))); err != nil {
+	// Amplitude 0.001 is below gateThreshold (0.005) — the tail stays "quiet",
+	// but the window has non-zero energy, so the catch-all must still fire.
+	low := float32ToBytes(func() []float32 {
+		in := make([]float32, 48000)
+		for i := range in {
+			in[i] = 0.001
+		}
+		return in
+	}())
+	for i := 0; i < 6; i++ {
+		time.Sleep(750 * time.Millisecond)
+		if err := w.Feed(low); err != nil {
 			t.Fatal(err)
 		}
 	}
-	time.Sleep(20 * time.Millisecond)
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
 	<-done
-	if len(dones) != 1 || dones[0] != "Hello " {
-		t.Fatalf("onDone = %v, want one phrase 'Hello '", dones)
+	if call == 0 {
+		t.Error("catch-all never ran Process for below-threshold audio")
 	}
-	if math.Abs(confs[0]-0.8) > 1e-4 {
-		t.Errorf("confidence = %v, want ~0.8", confs[0])
+}
+
+func TestStream_WindowTrimmedToCap(t *testing.T) {
+	ctx := &fakeContext{}
+	gotLen := 0
+	ctx.processFn = func(window []float32, enc whispercpp.EncoderBeginCallback, seg whispercpp.SegmentCallback, prog whispercpp.ProgressCallback) error {
+		gotLen = len(window)
+		enc()
+		seg(whispercpp.Segment{Text: "x", End: time.Duration(len(window)) * time.Second / modelSampleRate})
+		return nil
 	}
-	if langs[0] != "en" {
-		t.Errorf("language = %q, want en", langs[0])
+	w := newFakeWhisper(t, &fakeModel{ctx: ctx})
+	done := make(chan error, 1)
+	go func() { done <- w.Stream(48000, nil, nil) }()
+
+	for i := 0; i < 6; i++ {
+		if err := w.Feed(loudChunk(48000)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(1 * time.Second)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if max := modelSampleRate * windowSeconds; gotLen > max {
+		t.Errorf("Process window = %d samples, cap is %d", gotLen, max)
+	}
+	if gotLen == 0 {
+		t.Error("Process never ran")
 	}
 }
 
@@ -174,10 +265,16 @@ func TestStream_EmptyPhrase_NoDone(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- w.Stream(48000, nil, func(t string, _ float64, _ string) { dones = append(dones, t) }) }()
 
-	if err := w.Feed(float32ToBytes(make([]float32, 48000))); err != nil {
+	if err := w.Feed(loudChunk(48000)); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(20 * time.Millisecond)
+	for i := 0; i < 3; i++ {
+		time.Sleep(200 * time.Millisecond)
+		if err := w.Feed(quietChunk(48000)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}

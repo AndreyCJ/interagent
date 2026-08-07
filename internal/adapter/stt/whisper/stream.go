@@ -1,34 +1,59 @@
 package whisper
 
 import (
+	"fmt"
 	"math"
+	"os"
 	"time"
 
 	whispercpp "github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
 )
 
 // finalizeSilence is the trailing silence (model time) required before the last
-// segment counts as a finished phrase. Tunable; validated by the CI integration
-// test.
+// segment counts as a finished phrase.
 const finalizeSilence = 400 * time.Millisecond
 
+// streamParams are the silence-gate timings and RMS threshold. Single default
+// set today; kept as a struct so calibration can adjust the threshold without
+// touching the logic.
+type streamParams struct {
+	gateTail      time.Duration // trailing RMS window at model rate
+	finalize      time.Duration // quiet run length that triggers a phrase-end Process
+	backstop      time.Duration // Process cadence while speech is continuous
+	maxInterval   time.Duration // hard cap between Processes when the window has energy
+	gateThreshold float32       // RMS below which the tail counts as quiet
+}
+
+var streamDefaults = streamParams{
+	gateTail:      200 * time.Millisecond,
+	finalize:      finalizeSilence,
+	backstop:      3 * time.Second,
+	maxInterval:   4 * time.Second,
+	gateThreshold: 0.005,
+}
+
+// sttDebugRMS logs the gate state to /tmp/interagent-stt-rms.log (1 line/sec)
+// when INTERAGENT_STT_DEBUG_RMS=1 — used for calibrating gateThreshold against
+// real system audio.
+var sttDebugRMS = os.Getenv("INTERAGENT_STT_DEBUG_RMS") != ""
+
 // streamState is the whisper streaming state machine: a rolling window at the
-// model sample rate and single-segment re-transcription with phrase
-// finalization on trailing silence.
+// model sample rate and single-segment re-transcription driven by a silence
+// gate.
 //
 // The Go binding forces single_segment mode whenever a SegmentCallback is set,
 // so each Process call re-transcribes the WHOLE window into one segment (fresh
 // results every call — whisper_full_with_state clears result_all up front).
-// Partial text is therefore REPLACED, never appended. Phrase boundaries are
-// detected by trailing silence: when the last segment's end leaves >=
-// finalizeSilence of audio at the window tail, the speaker has stopped and we
-// finalize the phrase. (Verified against whisper.cpp v1.9.1 whisper_full /
-// whisper_full_with_state.)
+// Process is therefore run ONLY at phrase boundaries: when trailing audio has
+// been quiet for finalizeSilence after speech, or as a cadence backstop while
+// speech is continuous. Whisper's own VAD (via finalizePhrase in the
+// encoder-begin callback) remains the phrase-end authority.
 type streamState struct {
 	ctx        sttContext
 	sampleRate int
 	onPartial  func(string)
 	onDone     func(string, float64, string)
+	params     streamParams
 
 	window   []float32
 	partial  string
@@ -38,10 +63,28 @@ type streamState struct {
 	lastSegEnd int
 	windowLen  int
 	first      bool // false after the first Process call
+
+	// Silence gate.
+	ring               []float32 // trailing model-rate samples (gateTail)
+	ringPos            int
+	ringCount          int
+	speaking           bool
+	quietSince         time.Time
+	lastProcess        time.Time
+	energySinceProcess float64 // sum of |sample| appended since the last Process
+	lastDebug          time.Time
 }
 
 func newStreamState(ctx sttContext, sampleRate int, onPartial func(string), onDone func(string, float64, string)) *streamState {
-	return &streamState{ctx: ctx, sampleRate: sampleRate, onPartial: onPartial, onDone: onDone, first: true}
+	ringLen := int(math.Ceil(streamDefaults.gateTail.Seconds() * float64(modelSampleRate)))
+	if ringLen < 1 {
+		ringLen = 1
+	}
+	return &streamState{
+		ctx: ctx, sampleRate: sampleRate, onPartial: onPartial, onDone: onDone,
+		params: streamDefaults, ring: make([]float32, ringLen), first: true,
+		lastProcess: time.Now(),
+	}
 }
 
 func (s *streamState) ingest(chunk []byte) error {
@@ -51,7 +94,94 @@ func (s *streamState) ingest(chunk []byte) error {
 	if max := modelSampleRate * windowSeconds; len(s.window) > max {
 		s.window = s.window[len(s.window)-max:]
 	}
-	return s.ctx.Process(s.window, s.newEncoderBeginCb(), s.newSegmentCb(), nil)
+	var energy float64
+	for _, v := range rs {
+		energy += math.Abs(float64(v))
+	}
+	s.energySinceProcess += energy
+	s.pushTail(rs)
+	return s.maybeProcess()
+}
+
+// pushTail feeds the gate ring with the newest model-rate samples.
+func (s *streamState) pushTail(rs []float32) {
+	for _, v := range rs {
+		s.ring[s.ringPos] = v
+		s.ringPos = (s.ringPos + 1) % len(s.ring)
+		if s.ringCount < len(s.ring) {
+			s.ringCount++
+		}
+	}
+}
+
+func (s *streamState) resetGate() {
+	s.ringPos = 0
+	s.ringCount = 0
+	s.speaking = false
+	s.quietSince = time.Time{}
+	s.energySinceProcess = 0
+}
+
+// tailRMS is the RMS of the gateTail ring.
+func (s *streamState) tailRMS() float32 {
+	if s.ringCount == 0 {
+		return 0
+	}
+	var sum float64
+	for _, v := range s.ring {
+		sum += float64(v) * float64(v)
+	}
+	return float32(math.Sqrt(sum / float64(s.ringCount)))
+}
+
+// maybeProcess runs Process only when the silence gate or a cadence timer says
+// a phrase boundary (or stall) happened. During continuous speech or idle
+// silence it does nothing — the per-chunk full-window re-transcription that
+// caused the 10s latency / 99% CPU is gone.
+func (s *streamState) maybeProcess() error {
+	now := time.Now()
+	tail := s.tailRMS()
+	if sttDebugRMS && now.Sub(s.lastDebug) >= time.Second {
+		s.lastDebug = now
+		f, err := os.OpenFile("/tmp/interagent-stt-rms.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err == nil {
+			_, _ = fmt.Fprintf(f, "%s tail_rms=%.5f speaking=%v since_process=%v energy=%v\n",
+				now.Format("15:04:05.000"), tail, s.speaking, now.Sub(s.lastProcess).Round(time.Millisecond), s.energySinceProcess)
+			_ = f.Close()
+		}
+	}
+	switch {
+	case tail >= s.params.gateThreshold:
+		s.speaking = true
+		s.quietSince = time.Time{}
+	case s.speaking:
+		if s.quietSince.IsZero() {
+			s.quietSince = now
+		}
+		if now.Sub(s.quietSince) >= s.params.finalize {
+			return s.process(now)
+		}
+	}
+	if s.speaking && now.Sub(s.lastProcess) >= s.params.backstop {
+		return s.process(now)
+	}
+	if s.energySinceProcess > 0 && now.Sub(s.lastProcess) >= s.params.maxInterval {
+		return s.process(now)
+	}
+	return nil
+}
+
+func (s *streamState) process(now time.Time) error {
+	s.lastProcess = now
+	s.energySinceProcess = 0
+	if err := s.ctx.Process(s.window, s.newEncoderBeginCb(), s.newSegmentCb(), nil); err != nil {
+		return err
+	}
+	// The gate runs Process at most once per phrase: this call IS the
+	// phrase-end transcription, so the phrase finalizes here — the segment's
+	// trailing silence in the window has already elapsed in real time.
+	s.finalizePhrase()
+	return nil
 }
 
 // newEncoderBeginCb fires once per Process call (single_segment mode runs the
@@ -100,6 +230,7 @@ func (s *streamState) finalizePhrase() {
 		s.window = s.window[s.lastSegEnd:]
 	}
 	s.lastSegEnd = 0
+	s.resetGate()
 	if s.onDone != nil {
 		s.onDone(text, conf, lang)
 	}
