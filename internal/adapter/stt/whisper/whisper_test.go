@@ -12,6 +12,7 @@ import (
 type fakeContext struct {
 	detected  string
 	setLang   []string
+	threads   uint
 	vad       bool
 	vadModel  string
 	vadThresh float32
@@ -20,6 +21,7 @@ type fakeContext struct {
 }
 
 func (f *fakeContext) SetLanguage(l string) error { f.setLang = append(f.setLang, l); return nil }
+func (f *fakeContext) SetThreads(v uint)          { f.threads = v }
 func (f *fakeContext) SetVAD(v bool)              { f.vad = v }
 func (f *fakeContext) SetVADModelPath(p string)   { f.vadModel = p }
 func (f *fakeContext) SetVADThreshold(t float32)  { f.vadThresh = t }
@@ -45,7 +47,7 @@ func (f *fakeModel) Close() error                    { f.closed = true; return n
 
 func newFakeWhisper(t *testing.T, model *fakeModel) *Whisper {
 	t.Helper()
-	w := newWithOpener("model.bin", "vad.onnx", func(string) (sttModel, error) { return model, nil })
+	w := newWithOpener("model.bin", "vad.onnx", "auto", func(string) (sttModel, error) { return model, nil })
 	return w
 }
 
@@ -65,13 +67,35 @@ func TestStream_ConfiguresContext(t *testing.T) {
 	if len(ctx.setLang) != 1 || ctx.setLang[0] != "auto" {
 		t.Errorf("SetLanguage = %v, want [auto]", ctx.setLang)
 	}
+	if ctx.threads != 4 {
+		t.Errorf("SetThreads = %d, want 4", ctx.threads)
+	}
 	if !ctx.vad || ctx.vadModel != "vad.onnx" || ctx.vadThresh != 0.6 {
 		t.Errorf("VAD config = (%v, %q, %v)", ctx.vad, ctx.vadModel, ctx.vadThresh)
 	}
 }
 
+func TestStream_ConfiguredLanguage(t *testing.T) {
+	ctx := &fakeContext{}
+	w := newWithOpener("model.bin", "vad.onnx", "ru", func(string) (sttModel, error) {
+		return &fakeModel{ctx: ctx}, nil
+	})
+	done := make(chan error, 1)
+	go func() { done <- w.Stream(48000, nil, nil) }()
+	time.Sleep(20 * time.Millisecond)
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("Stream() error: %v", err)
+	}
+	if len(ctx.setLang) != 1 || ctx.setLang[0] != "ru" {
+		t.Errorf("SetLanguage = %v, want [ru]", ctx.setLang)
+	}
+}
+
 func TestStream_LoadError(t *testing.T) {
-	w := newWithOpener("model.bin", "vad.onnx", func(string) (sttModel, error) {
+	w := newWithOpener("model.bin", "vad.onnx", "auto", func(string) (sttModel, error) {
 		return nil, errors.New("cannot open model")
 	})
 	if err := w.Stream(48000, nil, nil); err == nil {

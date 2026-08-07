@@ -91,8 +91,8 @@ func NewApp() *App {
 
 	modelPath := filepath.Join(modelsDir, "ggml-base.bin")
 	vadPath := filepath.Join(modelsDir, "ggml-silero-v6.2.0.bin")
-	sttSystem := whisperadapter.New(modelPath, vadPath)
-	sttMic := whisperadapter.New(modelPath, vadPath)
+	sttSystem := whisperadapter.New(modelPath, vadPath, "auto")
+	sttMic := whisperadapter.New(modelPath, vadPath, "auto")
 	captureSystem := audio.NewSystemCapture()
 	captureMic := audio.NewMicrophoneCapture()
 	audioSystem := usecase.NewAudioPipeline(port.AudioSourceSystem, ev, captureSystem, sttSystem, llm, sessionUC)

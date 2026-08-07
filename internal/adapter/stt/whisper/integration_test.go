@@ -26,7 +26,7 @@ func TestStream_RealModel_Integration(t *testing.T) {
 		t.Fatalf("decode wav: %v", err)
 	}
 
-	w := New(modelPath, vadPath)
+	w := New(modelPath, vadPath, "auto")
 	doneCh := make(chan struct {
 		text string
 		conf float64

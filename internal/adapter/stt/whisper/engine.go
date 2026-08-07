@@ -13,6 +13,7 @@ type sttModel interface {
 
 type sttContext interface {
 	SetLanguage(string) error
+	SetThreads(uint)
 	SetVAD(bool)
 	SetVADModelPath(string)
 	SetVADThreshold(float32)

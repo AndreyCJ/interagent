@@ -17,30 +17,36 @@ const (
 	windowSeconds = 5
 )
 
+// whisper.cpp inference threads (ADR-005). Fixed at 4: the binding defaults to
+// runtime.NumCPU(), which saturates the M1 Pro during every Process call.
+const streamThreads = 4
+
 type Whisper struct {
-	mu      sync.Mutex
-	path    string
-	vadPath string
-	opener  engineOpener
-	feed    chan []byte
-	close   chan struct{}
-	once    sync.Once
-	model   sttModel
-	loaded  bool
-	loadErr error
+	mu       sync.Mutex
+	path     string
+	vadPath  string
+	language string
+	opener   engineOpener
+	feed     chan []byte
+	close    chan struct{}
+	once     sync.Once
+	model    sttModel
+	loaded   bool
+	loadErr  error
 }
 
-func New(modelPath, vadModelPath string) *Whisper {
-	return newWithOpener(modelPath, vadModelPath, realOpener)
+func New(modelPath, vadModelPath, language string) *Whisper {
+	return newWithOpener(modelPath, vadModelPath, language, realOpener)
 }
 
-func newWithOpener(modelPath, vadModelPath string, opener engineOpener) *Whisper {
+func newWithOpener(modelPath, vadModelPath, language string, opener engineOpener) *Whisper {
 	return &Whisper{
-		path:    modelPath,
-		vadPath: vadModelPath,
-		opener:  opener,
-		feed:    make(chan []byte, 128),
-		close:   make(chan struct{}),
+		path:     modelPath,
+		vadPath:  vadModelPath,
+		language: language,
+		opener:   opener,
+		feed:     make(chan []byte, 128),
+		close:    make(chan struct{}),
 	}
 }
 
@@ -78,12 +84,17 @@ func (w *Whisper) Stream(sampleRate int, onPartial func(string), onDone func(tex
 	if err != nil {
 		return err
 	}
-	if err := ctx.SetLanguage("auto"); err != nil {
-		return err
-	}
 	ctx.SetVAD(true)
 	ctx.SetVADModelPath(w.vadPath)
 	ctx.SetVADThreshold(vadThreshold)
+	ctx.SetThreads(streamThreads)
+	lang := w.language
+	if lang == "" {
+		lang = "auto"
+	}
+	if err := ctx.SetLanguage(lang); err != nil {
+		return err
+	}
 
 	st := newStreamState(ctx, sampleRate, onPartial, onDone)
 	for {
