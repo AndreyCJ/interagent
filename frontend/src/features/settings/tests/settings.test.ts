@@ -30,6 +30,27 @@ describe('useSettings', () => {
     expect(settings.value).toEqual(base)
   })
 
+  it('normalizes the PascalCase binding payload to camelCase AppSettings', async () => {
+    mockWails.GetSettings.mockResolvedValue({
+      Theme: 'dark',
+      Language: 'ru',
+      Shortcuts: [],
+      AutoStartListening: true,
+      SttModel: 'small',
+      SttLanguage: 'en',
+    })
+    const { settings, load } = useSettings()
+    await load()
+    expect(settings.value).toEqual({
+      theme: 'dark',
+      language: 'ru',
+      shortcuts: [],
+      autoStartListening: true,
+      sttModel: 'small',
+      sttLanguage: 'en',
+    })
+  })
+
   it('saves settings via the backend and keeps the local copy in sync', async () => {
     mockWails.SaveSettings.mockResolvedValue(undefined)
     const { settings, save } = useSettings()

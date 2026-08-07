@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { AppSettings } from '../../common/types/api.types'
+import type { AppSettings, Shortcut } from '../../common/types/api.types'
 import { GetSettings, SaveSettings } from '../../common/utils/wails'
 
 export function useSettings() {
@@ -8,7 +8,15 @@ export function useSettings() {
 
   async function load() {
     try {
-      settings.value = (await GetSettings()) as unknown as AppSettings
+      const raw = (await GetSettings()) as Record<string, unknown>
+      settings.value = {
+        theme: (raw.theme ?? raw.Theme) as AppSettings['theme'],
+        language: (raw.language ?? raw.Language) as string,
+        shortcuts: (raw.shortcuts ?? raw.Shortcuts) as Shortcut[],
+        autoStartListening: (raw.autoStartListening ?? raw.AutoStartListening) as boolean,
+        sttModel: (raw.sttModel ?? raw.SttModel) as string,
+        sttLanguage: (raw.sttLanguage ?? raw.SttLanguage) as string,
+      }
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     }
