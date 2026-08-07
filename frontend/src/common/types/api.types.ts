@@ -26,6 +26,8 @@ export interface AppSettings {
   language: string
   shortcuts: Shortcut[]
   autoStartListening: boolean
+  sttModel: string
+  sttLanguage: string
 }
 
 export interface Shortcut {
