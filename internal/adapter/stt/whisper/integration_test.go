@@ -58,17 +58,44 @@ func TestStream_RealModel_Integration(t *testing.T) {
 			t.Fatalf("Feed() error: %v", err)
 		}
 	}
+	// A slow cold model load can leave the stream goroutine still starting up
+	// after the whole wav is already queued; it would then burst through the
+	// backlog and the gate would never see the quiet run out in real time. Wait
+	// for it to catch up so the paced silence below is consumed as it is fed.
+	catchUp := time.Now().Add(30 * time.Second)
+	for len(w.feed) > 0 {
+		if time.Now().After(catchUp) {
+			t.Fatal("stream goroutine never consumed the wav feed")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// The silence gate only fires when trailing quiet has really elapsed, so
+	// feed paced silence after the audio: the phrase finalizes, then nothing
+	// more (idle silence produces no Process).
+	silence := float32ToBytes(make([]float32, 1600))
+	deadline := time.Now().Add(700 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if err := w.Feed(silence); err != nil {
+			t.Fatalf("Feed() silence error: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	_ = w.Close()
 
+	var res struct {
+		text string
+		conf float64
+		lang string
+	}
 	select {
-	case <-doneCh:
+	case res = <-doneCh:
 	case <-time.After(30 * time.Second):
 		t.Fatal("no transcription:done within 30s")
 	}
 	if err := <-streamErr; err != nil {
 		t.Fatalf("Stream() error: %v", err)
 	}
-	res := <-doneCh
 	if res.text == "" {
 		t.Fatal("empty transcription for jfk.wav")
 	}
@@ -77,5 +104,11 @@ func TestStream_RealModel_Integration(t *testing.T) {
 	}
 	if res.lang != "en" {
 		t.Errorf("language = %q, want en", res.lang)
+	}
+
+	select {
+	case extra := <-doneCh:
+		t.Fatalf("unexpected second transcription:done: %+v", extra)
+	case <-time.After(500 * time.Millisecond):
 	}
 }
