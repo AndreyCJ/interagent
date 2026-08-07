@@ -208,13 +208,22 @@ func TestChecksumsFile_Format(t *testing.T) {
 		t.Fatalf("read checksums.txt: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("checksums.txt must have exactly 2 lines, got %d", len(lines))
+	if len(lines) != 4 {
+		t.Fatalf("checksums.txt must have exactly 4 lines, got %d", len(lines))
 	}
 	for _, line := range lines {
 		parts := strings.Fields(line)
 		if len(parts) != 2 || len(parts[1]) != 64 {
 			t.Errorf("malformed checksum line: %q", line)
+		}
+	}
+}
+
+func TestStore_Specs_AllModels(t *testing.T) {
+	store := New(t.TempDir())
+	for _, key := range []string{"ggml-base", "ggml-tiny", "ggml-small", "silero-vad"} {
+		if _, err := store.specFor(key); err != nil {
+			t.Errorf("missing spec for %q: %v", key, err)
 		}
 	}
 }

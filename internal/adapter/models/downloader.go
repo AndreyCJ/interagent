@@ -57,6 +57,18 @@ func (s *Store) add(name, sha256 string) {
 			sha256:   sha256,
 			fileName: "ggml-silero-v6.2.0.bin",
 		}
+	case "ggml-tiny.bin":
+		s.specs["ggml-tiny"] = spec{
+			url:      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+			sha256:   sha256,
+			fileName: "ggml-tiny.bin",
+		}
+	case "ggml-small.bin":
+		s.specs["ggml-small"] = spec{
+			url:      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+			sha256:   sha256,
+			fileName: "ggml-small.bin",
+		}
 	}
 }
 
