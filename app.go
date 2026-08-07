@@ -26,21 +26,26 @@ import (
 )
 
 type App struct {
-	ctx         context.Context
-	session     usecase.Session
-	audioSystem *usecase.AudioPipeline
-	audioMic    *usecase.AudioPipeline
-	models      *usecase.Models
-	captureMic  *audio.MicrophoneCapture
-	screenshot  usecase.Screenshot
-	llm         *usecase.LLM
-	agent       usecase.Agent
-	settings    usecase.Settings
-	overlay     usecase.Overlay
-	hotkeys     usecase.Hotkeys
-	permissions usecase.Permissions
-	events      *eventsimpl.Events
-	overlayWin  *window.Overlay
+	ctx             context.Context
+	session         usecase.Session
+	audioSystem     *usecase.AudioPipeline
+	audioMic        *usecase.AudioPipeline
+	captureSystem   *audio.SystemCapture
+	captureMic      *audio.MicrophoneCapture
+	sttSystem       *whisperadapter.Whisper
+	vadPath         string
+	lastSTTModel    string
+	lastSTTLanguage string
+	models          *usecase.Models
+	screenshot      usecase.Screenshot
+	llm             *usecase.LLM
+	agent           usecase.Agent
+	settings        usecase.Settings
+	overlay         usecase.Overlay
+	hotkeys         usecase.Hotkeys
+	permissions     usecase.Permissions
+	events          *eventsimpl.Events
+	overlayWin      *window.Overlay
 
 	mu         sync.Mutex
 	generating bool
@@ -89,30 +94,44 @@ func NewApp() *App {
 	modelStore := modelsadapter.New(modelsDir)
 	modelsUC := usecase.NewModels(ev, modelStore)
 
-	modelPath := filepath.Join(modelsDir, "ggml-base.bin")
+	sttModel, sttLanguage := "base", "auto"
+	if s, err := settingsUC.Get(); err == nil {
+		if s.SttModel != "" {
+			sttModel = s.SttModel
+		}
+		if s.SttLanguage != "" {
+			sttLanguage = s.SttLanguage
+		}
+	}
+	modelPath := filepath.Join(modelsDir, "ggml-"+sttModel+".bin")
 	vadPath := filepath.Join(modelsDir, "ggml-silero-v6.2.0.bin")
-	sttSystem := whisperadapter.New(modelPath, vadPath, "auto")
-	sttMic := whisperadapter.New(modelPath, vadPath, "auto")
+	sttSystem := whisperadapter.New(modelPath, vadPath, sttLanguage)
+	sttMic := whisperadapter.New(modelPath, vadPath, sttLanguage)
 	captureSystem := audio.NewSystemCapture()
 	captureMic := audio.NewMicrophoneCapture()
 	audioSystem := usecase.NewAudioPipeline(port.AudioSourceSystem, ev, captureSystem, sttSystem, llm, sessionUC)
 	audioMic := usecase.NewAudioPipeline(port.AudioSourceMic, ev, captureMic, sttMic, llm, sessionUC)
 
 	return &App{
-		session:     *sessionUC,
-		audioSystem: audioSystem,
-		audioMic:    audioMic,
-		models:      modelsUC,
-		captureMic:  captureMic,
-		screenshot:  *usecase.NewScreenshot(nil, nil),
-		llm:         llm,
-		agent:       *agentUC,
-		settings:    *settingsUC,
-		overlay:     *overlay,
-		hotkeys:     *usecase.NewHotkeys(hotkeysAdapter, overlay),
-		permissions: *usecase.NewPermissions(permissionsAdapter, ev),
-		events:      ev,
-		overlayWin:  overlayAdapter,
+		session:         *sessionUC,
+		audioSystem:     audioSystem,
+		audioMic:        audioMic,
+		captureSystem:   captureSystem,
+		captureMic:      captureMic,
+		sttSystem:       sttSystem,
+		vadPath:         vadPath,
+		lastSTTModel:    sttModel,
+		lastSTTLanguage: sttLanguage,
+		models:          modelsUC,
+		screenshot:      *usecase.NewScreenshot(nil, nil),
+		llm:             llm,
+		agent:           *agentUC,
+		settings:        *settingsUC,
+		overlay:         *overlay,
+		hotkeys:         *usecase.NewHotkeys(hotkeysAdapter, overlay),
+		permissions:     *usecase.NewPermissions(permissionsAdapter, ev),
+		events:          ev,
+		overlayWin:      overlayAdapter,
 	}
 }
 
@@ -155,20 +174,55 @@ func (a *App) GetOllamaModels() ([]string, error) {
 	return a.llm.ListLocalModels()
 }
 
+// ensureListeningPermissions checks screen recording, required for system
+// sound capture. A missing grant is first re-requested (the macOS prompt fires
+// when the status is NotDetermined; it is a no-op once Denied), then
+// re-checked. It returns an error only if the permission is still not granted.
+// Microphone permission is not requested: the mic pipeline is dormant until
+// the mic hotkey feature (2026-08-07).
+func ensureListeningPermissions(p port.Permissions) error {
+	perm := port.PermissionScreenCapture
+	if ok, err := p.Status(perm); err == nil && ok {
+		return nil
+	}
+	_ = p.Request(perm)
+	if ok, err := p.Status(perm); err == nil && ok {
+		return nil
+	}
+	return errors.New("screen recording permission required for system sound")
+}
+
 func (a *App) StartListening() error {
-	if ok, err := a.permissions.Status(port.PermissionScreenCapture); err == nil && !ok {
-		return errors.New("screen recording permission required for system sound")
-	}
-	if ok, err := a.permissions.Status(port.PermissionMicrophone); err == nil && !ok {
-		return errors.New("microphone permission required")
-	}
-	if err := a.audioSystem.Start(); err != nil {
+	settings, err := a.settings.Get()
+	if err != nil {
 		return err
 	}
-	if err := a.audioMic.Start(); err != nil {
-		_ = a.audioSystem.Stop()
+	if err := a.rebuildSTT(settings); err != nil {
 		return err
 	}
+	if err := ensureListeningPermissions(&a.permissions); err != nil {
+		return err
+	}
+	return a.audioSystem.Start()
+}
+
+// rebuildSTT recreates the system whisper adapter and pipeline when the STT
+// model or language changed since the last run. No-op when unchanged. Must be
+// called only while listening is stopped.
+func (a *App) rebuildSTT(settings port.AppSettings) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.lastSTTModel == settings.SttModel && a.lastSTTLanguage == settings.SttLanguage {
+		return nil
+	}
+	if err := a.sttSystem.Close(); err != nil {
+		return err
+	}
+	modelPath := filepath.Join(modelsDirPath(), "ggml-"+settings.SttModel+".bin")
+	a.sttSystem = whisperadapter.New(modelPath, a.vadPath, settings.SttLanguage)
+	a.audioSystem = usecase.NewAudioPipeline(port.AudioSourceSystem, a.events, a.captureSystem, a.sttSystem, a.llm, &a.session)
+	a.lastSTTModel = settings.SttModel
+	a.lastSTTLanguage = settings.SttLanguage
 	return nil
 }
 
