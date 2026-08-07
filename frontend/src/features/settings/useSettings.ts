@@ -8,7 +8,7 @@ export function useSettings() {
 
   async function load() {
     try {
-      const raw = (await GetSettings()) as Record<string, unknown>
+      const raw = (await GetSettings()) as unknown as Record<string, unknown>
       settings.value = {
         theme: (raw.theme ?? raw.Theme) as AppSettings['theme'],
         language: (raw.language ?? raw.Language) as string,
