@@ -177,14 +177,22 @@ describe('useChat', () => {
     expect(messages.value[0].text).toBe('Hello world')
   })
 
-  it('ignores system transcription for user messages', () => {
+  it('appends system transcription as an interviewer message on transcription:done', () => {
     const { messages } = useChat()
     fire('transcription:done', {
-      text: 'Speaker audio',
-      confidence: 0.8,
+      text: 'What is your approach?',
+      confidence: 0.92,
       language: 'en',
       source: 'system',
     })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('interviewer')
+    expect(messages.value[0].text).toBe('What is your approach?')
+  })
+
+  it('ignores transcription:done without text', () => {
+    const { messages } = useChat()
+    fire('transcription:done', { text: '', source: 'system' })
     expect(messages.value).toEqual([])
   })
 })

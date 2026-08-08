@@ -93,8 +93,11 @@ export function useChat() {
 
   onEvent('transcription:done', payload => {
     const p = payload as { text?: string; source?: string }
-    if (p?.text && p.source === 'mic') {
+    if (!p?.text) return
+    if (p.source === 'mic') {
       messages.value.push({ role: 'user', text: p.text })
+    } else if (p.source === 'system') {
+      messages.value.push({ role: 'interviewer', text: p.text })
     }
   })
 
