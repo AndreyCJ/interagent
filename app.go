@@ -140,6 +140,9 @@ func (a *App) startup(ctx context.Context) {
 	a.events.SetContext(ctx)
 	a.overlayWin.SetContext(ctx)
 	runtime.WindowSetAlwaysOnTop(ctx, true)
+	if err := a.session.EnsureSession(); err != nil {
+		_ = a.events.Emit("app:error", map[string]string{"stage": "session", "error": err.Error()})
+	}
 	mode, _ := a.overlay.GetMode()
 	_ = a.overlay.SetMode(mode)
 	_ = a.permissions.CheckAll()
