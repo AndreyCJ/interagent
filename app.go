@@ -27,7 +27,7 @@ import (
 
 type App struct {
 	ctx             context.Context
-	session         usecase.Session
+	session         *usecase.Session
 	audioSystem     *usecase.AudioPipeline
 	audioMic        *usecase.AudioPipeline
 	captureSystem   *audio.SystemCapture
@@ -113,7 +113,7 @@ func NewApp() *App {
 	audioMic := usecase.NewAudioPipeline(port.AudioSourceMic, ev, captureMic, sttMic, llm, sessionUC)
 
 	return &App{
-		session:         *sessionUC,
+		session:         sessionUC,
 		audioSystem:     audioSystem,
 		audioMic:        audioMic,
 		captureSystem:   captureSystem,
@@ -223,7 +223,7 @@ func (a *App) rebuildSTT(settings port.AppSettings) error {
 	}
 	modelPath := filepath.Join(modelsDirPath(), "ggml-"+settings.SttModel+".bin")
 	a.sttSystem = whisperadapter.New(modelPath, a.vadPath, settings.SttLanguage)
-	a.audioSystem = usecase.NewAudioPipeline(port.AudioSourceSystem, a.events, a.captureSystem, a.sttSystem, a.llm, &a.session)
+	a.audioSystem = usecase.NewAudioPipeline(port.AudioSourceSystem, a.events, a.captureSystem, a.sttSystem, a.llm, a.session)
 	a.lastSTTModel = settings.SttModel
 	a.lastSTTLanguage = settings.SttLanguage
 	return nil

@@ -37,7 +37,7 @@ func newOverlayMenu(app *App) *menu.Menu {
 func main() {
 	app := NewApp()
 
-	sessionBind := NewSessionBind(&app.session)
+	sessionBind := NewSessionBind(app.session)
 	audioBind := NewAudioBind(app)
 	modelsBind := NewModelsBind(app)
 	screenshotBind := NewScreenshotBind(&app.screenshot)
