@@ -196,7 +196,7 @@ func TestLLM_Generate_PassesHistoryFromReader(t *testing.T) {
 	engine := &mockLLM{response: "ok"}
 	hist := []port.Message{{Role: "user", Text: "earlier", Timestamp: 1}}
 	reader := mockSessionReader{session: port.Session{ID: "s1", ChatHistory: hist}}
-	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "openai-compatible"}}
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "openai-compatible", APIKey: "dummy"}}
 	llm := NewLLM(newMockEvents(), &mockSessionWriter{}, reader, agent, mockFactory{engine: engine})
 
 	if _, err := llm.Generate(port.LLMInput{Text: "now"}, "user"); err != nil {
@@ -283,7 +283,7 @@ func TestLLM_Generate_NoAgent_EmitsErrorEvent(t *testing.T) {
 
 func TestLLM_Generate_FactoryError_EmitsErrorEvent(t *testing.T) {
 	events := newMockEvents()
-	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "openai-compatible"}}
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "openai-compatible", APIKey: "dummy"}}
 	factory := mockFactory{err: errors.New("decrypt api key: boom")}
 	llm := NewLLM(events, &mockSessionWriter{}, mockSessionReader{}, agent, factory)
 

@@ -66,6 +66,11 @@ func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
 		_ = l.events.Emit("llm:error", map[string]string{"error": "no active agent"})
 		return "", errors.New("no active agent")
 	}
+	if agent.Provider == "openai-compatible" && agent.APIKey == "" {
+		msg := "no API key configured — set LLM_API_KEY environment variable"
+		_ = l.events.Emit("llm:error", map[string]string{"error": msg})
+		return "", errors.New(msg)
+	}
 	engine, err := l.factory.ForAgent(agent)
 	if err != nil {
 		_ = l.events.Emit("llm:error", map[string]string{"error": err.Error()})

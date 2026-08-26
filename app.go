@@ -51,6 +51,31 @@ type App struct {
 	generating bool
 }
 
+func envAgentConfig() (port.AgentConfig, bool) {
+	key := os.Getenv("LLM_API_KEY")
+	if key == "" {
+		return port.AgentConfig{}, false
+	}
+	baseURL := os.Getenv("LLM_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://api.deepseek.com"
+	}
+	model := os.Getenv("LLM_MODEL")
+	if model == "" {
+		model = "deepseek-chat"
+	}
+	return port.AgentConfig{
+		ID:           "env-llm",
+		Name:         "Env LLM",
+		Provider:     "openai-compatible",
+		Model:        model,
+		BaseURL:      baseURL,
+		APIKey:       key,
+		SystemPrompt: "You are a subtle interview hint assistant. Answer concisely. Answer in the same language as the question.",
+		Temperature:  0.7,
+	}, true
+}
+
 func NewApp() *App {
 	crypt, err := cryptoadapter.NewCrypto(cryptoadapter.NewKeychain())
 	if err != nil {
@@ -67,16 +92,26 @@ func NewApp() *App {
 	permissionsAdapter := system.NewPermissions()
 
 	factory := usecase.LLMFactory(func(cfg port.AgentConfig) (port.LLM, error) {
+		// env var overrides stored agent config
+		if envCfg, ok := envAgentConfig(); ok {
+			cfg = envCfg
+		}
 		switch cfg.Provider {
 		case "local":
 			return ollama.New(cfg.BaseURL, cfg.Model, cfg.SystemPrompt), nil
 		case "openai-compatible":
-			key, err := crypt.Decrypt(cfg.APIKey)
-			if err != nil {
-				return nil, fmt.Errorf("decrypt api key: %w", err)
+			key := cfg.APIKey
+			if cfg.ID == "env-llm" {
+				// key is already plaintext from env override above
+			} else {
+				decrypted, err := crypt.Decrypt(cfg.APIKey)
+				if err != nil {
+					return nil, fmt.Errorf("decrypt api key: %w", err)
+				}
+				key = decrypted
 			}
 			if key == "" {
-				return nil, errors.New("empty api key")
+				return nil, errors.New("no API key configured — set LLM_API_KEY environment variable")
 			}
 			return openai.New(cfg.BaseURL, key, cfg.Model, cfg.SystemPrompt), nil
 		default:
