@@ -302,3 +302,33 @@ func TestStorage_Seed_RepairsMissingDefaultAgent(t *testing.T) {
 	}
 	t.Fatal("seed() should re-insert the default cloud agent when the agents table is empty")
 }
+
+func TestStorage_Migrate_ReplacesDefaultLocalWithCloud(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.db.Exec(`INSERT INTO agents (id, name, provider, model, base_url, api_key, system_prompt, temperature)
+		VALUES ('default-local', 'Local (Ollama)', 'local', 'qwen3:8b', 'http://localhost:11434', '', '', 0.7)`)
+	if err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	if err := s.migrateDefaultAgent(); err != nil {
+		t.Fatalf("migrateDefaultAgent() error: %v", err)
+	}
+	agents, err := s.GetAgents()
+	if err != nil {
+		t.Fatalf("GetAgents() error: %v", err)
+	}
+	for _, a := range agents {
+		if a.ID == "default-local" {
+			t.Error("default-local should have been removed")
+		}
+	}
+	found := false
+	for _, a := range agents {
+		if a.ID == "default-cloud" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("default-cloud should exist after migration")
+	}
+}

@@ -65,7 +65,10 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	return s.addSettingsColumns()
+	if err := s.addSettingsColumns(); err != nil {
+		return err
+	}
+	return s.migrateDefaultAgent()
 }
 
 func (s *Store) addSettingsColumns() error {
@@ -99,6 +102,23 @@ func (s *Store) addSettingsColumns() error {
 		}
 	}
 	return nil
+}
+
+func (s *Store) migrateDefaultAgent() error {
+	_, _ = s.db.Exec(`DELETE FROM agents WHERE id = 'default-local'`)
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM agents WHERE id = 'default-cloud'`).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO agents (id, name, provider, model, base_url, api_key, system_prompt, temperature)
+		 VALUES ('default-cloud', 'Cloud (OpenAI-compatible)', 'openai-compatible', 'deepseek-chat', 'https://api.deepseek.com', '',
+		         'You are a subtle interview hint assistant. Answer concisely. Answer in the same language as the question.', 0.7)`,
+	)
+	return err
 }
 
 func (s *Store) seed() error {
