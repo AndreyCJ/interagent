@@ -269,23 +269,23 @@ func TestStorage_Agents_CRUD(t *testing.T) {
 	}
 }
 
-func TestStorage_Seed_CreatesDefaultLocalAgent(t *testing.T) {
+func TestStorage_Seed_CreatesDefaultCloudAgent(t *testing.T) {
 	s := newTestStore(t)
 	agents, err := s.GetAgents()
 	if err != nil {
 		t.Fatalf("GetAgents() returned error: %v", err)
 	}
 	if len(agents) == 0 {
-		t.Fatal("expected a seeded default local agent")
+		t.Fatal("expected a seeded default cloud agent")
 	}
-	if agents[0].Provider != "local" || agents[0].Model == "" {
+	if agents[0].Provider != "openai-compatible" || agents[0].Model == "" {
 		t.Errorf("default agent mismatch: %+v", agents[0])
 	}
 }
 
 func TestStorage_Seed_RepairsMissingDefaultAgent(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.DeleteAgent("default-local"); err != nil {
+	if err := s.DeleteAgent("default-cloud"); err != nil {
 		t.Fatalf("DeleteAgent() returned error: %v", err)
 	}
 	if err := s.seed(); err != nil {
@@ -296,9 +296,9 @@ func TestStorage_Seed_RepairsMissingDefaultAgent(t *testing.T) {
 		t.Fatalf("GetAgents() returned error: %v", err)
 	}
 	for _, a := range agents {
-		if a.ID == "default-local" {
+		if a.ID == "default-cloud" {
 			return
 		}
 	}
-	t.Fatal("seed() should re-insert the default local agent when the agents table is empty")
+	t.Fatal("seed() should re-insert the default cloud agent when the agents table is empty")
 }

@@ -132,7 +132,7 @@ func (s *Store) seed() error {
 	}
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO agents (id, name, provider, model, base_url, api_key, system_prompt, temperature)
-		 VALUES ('default-local', 'Local (Ollama)', 'local', 'qwen3:8b', 'http://localhost:11434', '',
+		 VALUES ('default-cloud', 'Cloud (OpenAI-compatible)', 'openai-compatible', 'deepseek-chat', 'https://api.deepseek.com', '',
 		         'You are a subtle interview hint assistant. Answer concisely. Answer in the same language as the question.', 0.7)`,
 	)
 	return err
