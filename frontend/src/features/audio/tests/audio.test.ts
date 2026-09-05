@@ -115,4 +115,16 @@ describe('useAudio', () => {
     await openSettings()
     expect(mockWails.OpenPermissionSettings).toHaveBeenCalledWith('screen-recording')
   })
+
+  it('openSettings opens the microphone pane when mic permission is missing', async () => {
+    mockWails.IsListening.mockResolvedValue(false)
+    mockWails.StartListening.mockRejectedValue(new Error('microphone permission required'))
+    mockWails.OpenPermissionSettings.mockResolvedValue(undefined)
+    const { error, load, toggle, openSettings } = useAudio()
+    await load()
+    await toggle()
+    await openSettings()
+    expect(error.value).toBe('microphone permission required')
+    expect(mockWails.OpenPermissionSettings).toHaveBeenCalledWith('microphone')
+  })
 })

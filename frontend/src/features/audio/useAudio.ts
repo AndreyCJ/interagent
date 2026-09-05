@@ -11,7 +11,7 @@ export function useAudio() {
   const error = ref<string | null>(null)
   const busy = ref(false)
 
-  async function load(): Promise<void> {
+  async function load() {
     try {
       isListening.value = await IsListening()
     } catch {
@@ -19,7 +19,7 @@ export function useAudio() {
     }
   }
 
-  async function toggle(): Promise<void> {
+  async function toggle() {
     if (busy.value) return
     busy.value = true
     error.value = null
@@ -37,8 +37,9 @@ export function useAudio() {
     }
   }
 
-  async function openSettings(): Promise<void> {
-    await OpenPermissionSettings('screen-recording')
+  async function openSettings() {
+    const target = (error.value ?? '').includes('microphone') ? 'microphone' : 'screen-recording'
+    await OpenPermissionSettings(target)
   }
 
   return { isListening, error, busy, load, toggle, openSettings }

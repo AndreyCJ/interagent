@@ -94,6 +94,7 @@ func (a *AudioPipeline) onDone(text string, confidence float64, language string)
 		"text":       text,
 		"confidence": confidence,
 		"language":   language,
+		"source":     string(a.source),
 	})
 	switch a.source {
 	case port.AudioSourceSystem:

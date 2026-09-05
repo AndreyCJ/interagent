@@ -29,6 +29,7 @@
 | `adr/009-...md`        | ADR-009: narrow storage interfaces (ISP)                                             | Accepted | Human + Agent  |
 | `adr/010-...md`        | ADR-010: events port (Event Bus) for async usecase → frontend events                 | Accepted | Human + Agent  |
 | `adr/011-...md`        | ADR-011: local LLM via Ollama (separate process)                                     | Accepted | Human + Agent  |
+| `adr/012-...md`        | ADR-012: system sound — SCContentFilter scope + dev code signing                     | Accepted | Human + Agent  |
 
 ## What is the source of truth (rule for agents)
 

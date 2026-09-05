@@ -23,7 +23,6 @@ Interagent — приложение-оверлей, которое в реаль
 2. **ADR-001/005 обязательны:** STT — только локально (whisper.cpp, единственное cgo-место). LLM — локальный (llama.go, pure Go) или облачный OpenAI-совместимый по выбору пользователя (см. ADR-004); apiKey хранится зашифрованным (AES-256-GCM, мастер-ключ в Keychain).
 3. **Изменение контракта или архитектуры требует ADR** (см. `docs/adr/README.md`).
 4. **Чистые зависимости:** `adapter → port ← usecase ← bind ← frontend`. Ни `usecase`, ни `port` не зависят от реализаций адаптеров.
-5. **Markdown форматируется только через Prettier.** После правки любого `.md` (docs/, AGENTS.md, README.md и т.д.) — прогнать `pnpm docs:format:check`; для автоформатирования — `pnpm docs:format`.
 
 ## Как запустить проверки
 
@@ -43,3 +42,9 @@ cd frontend && pnpm exec playwright test   # e2e
 ```
 
 Сборка: `wails build`.
+
+## macOS: аудио-дев-цикл и подпись
+
+- ScreenCaptureKit (системный звук, скриншоты/OCR, ADR-012) на Sequoia/Tahoe отклоняет неподписанные / ad-hoc / self-signed бинарники (`SCError 1003`), а TCC-гранты привязаны к подписи кода.
+- Аудио-тест-цикл: `./scripts/dev-audio.sh` — собирает `.app`, подписывает стабильной identity (авто-выбор: `$IA_DEV_SIGN_IDENTITY` → `Apple Development:` → self-signed), открывает bundle. `wails dev` для аудио не подходит (запускает неподписанный bare-бинарник).
+- Гранты Screen & System Audio Recording + Microphone выдаются один раз для `interagent.app` (bundle id `com.wails.interagent`) и держатся между пересборками только при стабильной подписи. Если после переподписи грант «слетел» — `tccutil reset ScreenCapture com.wails.interagent` (+ `Microphone`) и выдать заново.

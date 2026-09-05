@@ -26,10 +26,10 @@
 
 ## Audio / STT
 
-| Event                | Data                                                     | When                                                                                |
-| -------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `audio:level`        | `{ level: number }`                                      | Microphone level (throttled)                                                        |
-| `transcription:done` | `{ text: string, confidence: number, language: string }` | Final STT text (`language` = whisper-detected code, e.g. `"en"`, `""` when unknown) |
+| Event                | Data                                                                                | When                                                                                |
+| -------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `audio:level`        | `{ level: number }`                                                                 | Microphone level (throttled)                                                        |
+| `transcription:done` | `{ text: string, confidence: number, language: string, source: 'mic' \| 'system' }` | Final STT text (`language` = whisper-detected code, e.g. `"en"`, `""` when unknown) |
 
 ## Models
 

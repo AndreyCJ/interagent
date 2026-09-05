@@ -175,21 +175,32 @@ void *iasystem_start(void *delegate, char *errBuf, int errLen) {
 
     [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
         if (error) {
-            errDesc = [NSString stringWithFormat:@"SCError %ld (%@): %@",
-                       (long)error.code, error.domain, error.localizedDescription];
+            errDesc = [NSString stringWithFormat:@"SCError %ld (%@): %@ | userInfo=%@",
+                       (long)error.code, error.domain, error.localizedDescription, error.userInfo];
             dispatch_semaphore_signal(sem);
             return;
         }
+        // Include all applications instead of excluding an empty window list:
+        // with `initWithDisplay:excludingWindows:@[]` some macOS versions start
+        // the stream but never deliver buffers (see ADR-012).
         SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:content.displays.firstObject
-                                                           excludingWindows:@[]];
+                                                       includingApplications:content.applications
+                                                            exceptingWindows:@[]];
         if (!filter) {
             errDesc = @"no shareable display found";
             dispatch_semaphore_signal(sem);
             return;
         }
+        SCDisplay *display = content.displays.firstObject;
         SCStreamConfiguration *config = [[SCStreamConfiguration alloc] init];
-        config.width = 1;
-        config.height = 1;
+        // Real pixel dimensions are required: a 1x1 audio-only config makes the
+        // daemon fail to materialize the stream (SCError 1003 kCGErrorInvalidConnection,
+        // "The stream is nil") on macOS 26 (see ADR-012).
+        config.width = display.width > 0 ? display.width : 1920;
+        config.height = display.height > 0 ? display.height : 1080;
+        config.sampleRate = 48000;
+        config.channelCount = 2;
+        config.queueDepth = 8;
         config.capturesAudio = YES;
         config.excludesCurrentProcessAudio = NO;
         config.showsCursor = NO;
@@ -203,16 +214,20 @@ void *iasystem_start(void *delegate, char *errBuf, int errLen) {
                           sampleHandlerQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)
                                        error:&outErr];
         if (!added) {
-            errDesc = outErr ? [NSString stringWithFormat:@"SCError %ld (%@): %@",
-                                        (long)outErr.code, outErr.domain, outErr.localizedDescription]
+            errDesc = outErr ? [NSString stringWithFormat:@"SCError %ld (%@): %@ | userInfo=%@",
+                                        (long)outErr.code, outErr.domain, outErr.localizedDescription, outErr.userInfo]
                              : @"cannot add audio stream output";
             dispatch_semaphore_signal(sem);
             return;
         }
         [stream startCaptureWithCompletionHandler:^(NSError *err) {
             if (err) {
-                errDesc = [NSString stringWithFormat:@"SCError %ld (%@): %@",
-                           (long)err.code, err.domain, err.localizedDescription];
+                errDesc = [NSString stringWithFormat:@"SCError %ld (%@): %@ | userInfo=%@",
+                           (long)err.code, err.domain, err.localizedDescription, err.userInfo];
+                // Tear the stream down so a failed start does not leave a
+                // half-open session registered with the SCK service (which
+                // makes later startCapture calls fail with 1003).
+                [stream stopCaptureWithCompletionHandler:nil];
                 stream = nil;
             }
             dispatch_semaphore_signal(sem);

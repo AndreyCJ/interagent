@@ -282,6 +282,9 @@ func TestAudioPipeline_SystemDone_AutoAnswers(t *testing.T) {
 	if done["text"] != "What is your approach?" || done["confidence"] != 0.92 || done["language"] != "en" {
 		t.Errorf("transcription:done payload = %v", done)
 	}
+	if done["source"] != "system" {
+		t.Errorf("transcription:done source = %v, want system", done["source"])
+	}
 }
 
 func TestAudioPipeline_SystemDone_EmptyText_NoLLM(t *testing.T) {
@@ -328,6 +331,10 @@ func TestAudioPipeline_MicDone_HistoryOnly(t *testing.T) {
 	}
 	if role, text := history.last(); role != "user" || text != "my answer" {
 		t.Errorf("history append = (%q, %q), want (user, my answer)", role, text)
+	}
+	done := events.payload("transcription:done", 0).(map[string]any)
+	if done["source"] != "mic" {
+		t.Errorf("transcription:done source = %v, want mic", done["source"])
 	}
 }
 
