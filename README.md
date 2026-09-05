@@ -1,35 +1,22 @@
 # Interagent
 
-Приложение-оверлей для отображения подсказок в режиме реального времени.
+Приложение-оверлей для интервью и презентаций: слушает системный и микрофонный звук (STT),
+захватывает скриншоты (OCR), отправляет текст в облачный OpenAI-совместимый LLM и показывает
+подсказки в прозрачном окне поверх всех окон.
 
-**Конфиденциальность по умолчанию.** Аудио и скриншоты никогда не покидают устройство.
-LLM может быть локальным (llama.go) или облачным (OpenAI-compatible) — выбор пользователя,
-ApiKey хранится зашифрованным. См. [ADR-001](docs/adr/001-local-vs-api-llm.md).
+**Конфиденциальность по умолчанию.** Аудио всегда остаётся на устройстве (локальный STT — whisper.cpp).
+ApiKey хранится зашифрованным (AES-256-GCM, мастер-ключ в Keychain). См. [ADR-001](docs/adr/001-local-vs-api-llm.md),
+[ADR-004](docs/adr/004-cloud-llm.md), [ADR-005](docs/adr/005-inference-without-cgo.md).
 
 ## Как запустить
 
 ```
 go generate ./...     # wails Generate
-wails dev             # режим разработки (гарячее перезапуск фронта + бэкенд)
+LLM_API_KEY=... wails dev    # dev-режим с облачным LLM
 wails build           # production-сборка .app
 ```
 
-Разработка требует: Go 1.25+, Node 22 + pnpm, macOS 14+.
-
-## Документация
-
-| Документ                                                     | Назначение                                                |
-| ------------------------------------------------------------ | --------------------------------------------------------- |
-| [docs/00-documentation-map.md](docs/00-documentation-map.md) | Карта документации, статусы, порядок чтения               |
-| [docs/01-tz.md](docs/01-tz.md)                               | ТЗ, сущности, сценарии, словарь, этапы                    |
-| [docs/02-nfr.md](docs/02-nfr.md)                             | Нефункциональные требования                               |
-| [docs/03-process.md](docs/03-process.md)                     | Процесс: TDD, ревью, Definition of Done                   |
-| [docs/04-events.md](docs/04-events.md)                       | Рантайм-события backend → frontend (типы/методы — в коде) |
-| [docs/05-architecture.md](docs/05-architecture.md)           | Слои, пайплайн, окно, ошибки, хранилище                   |
-| [docs/06-bind-contracts.md](docs/06-bind-contracts.md)       | Контракт bind-методов frontend ↔ backend                  |
-| [docs/adr/](docs/adr/)                                       | Архитектурные решения (ADR-001…008)                       |
-
-Агенты: см. [AGENTS.md](AGENTS.md).
+Разработка требует: Go 1.25+, Node 22 + pnpm, macOS 14+. Аудио-тест-цикл и подпись см. в [AGENTS.md](AGENTS.md).
 
 ## Проверки
 

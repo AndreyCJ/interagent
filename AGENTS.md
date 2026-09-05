@@ -3,45 +3,47 @@
 ## Суть проекта
 
 Interagent — приложение-оверлей, которое в реальном времени слушает интервью или презентацию (STT)
-и захватывает скриншоты (OCR), отправляет текст в локальную или облачную LLM и показывает подски в прозрачном окне поверх всех окон.
+и захватывает скриншоты (OCR), отправляет текст в локальную или облачную LLM и показывает подсказки в прозрачном окне поверх всех окон.
 Аудио никогда не покидает устройство. Скриншоты уходят в облако только при включённом облачном агенте и выбранном direct-image режиме (ADR-004, ADR-005); иначе — только текст транскрипций/OCR.
 
-## Где документация
+## Контракты живут в коде
 
-- `docs/00-documentation-map.md` — карта документов и порядок чтения.
-- `docs/01-tz.md` — ТЗ, сущности, сценарии, словарь, ограничения, этапы.
-- `docs/02-nfr.md` — нефункциональные требования.
-- `docs/03-process.md` — процесс разработки (TDD, ревью, Definition of Done).
-- `docs/04-events.md` — рантайм-события backend → frontend (типы и bind-методы живут в коде: `internal/port/types.go` ↔ `frontend/src/common/types/api.types.ts`).
-- `docs/05-architecture.md` — слои, зависимости, пайплайн, окно, ошибки, хранилище.
-- `docs/06-bind-contracts.md` — контракт bind-методов frontend ↔ backend.
-- `docs/adr/` — архитектурные решения (ADR-001…008).
+Документация намеренно минимальна — источником истины является код (`docs/adr/` хранит только решения):
+
+- Рантайм-события backend → frontend и типы: `internal/port/types.go`, `internal/port/events.go` ↔ `frontend/src/common/types/api.types.ts`.
+- Контракт bind-методов: `bind_*.go` (тонкие диспетчеры без логики).
+- Слои/пайплайн/ошибки/хранилище — по структуре `internal/{adapter,port,usecase}` и `app.go`.
 
 ## Ключевые правила для агентов
 
-1. **Тесты — before код.** Никакой реализации без зелёных тестов и ревью.
-2. **ADR-001/005 обязательны:** STT — только локально (whisper.cpp, единственное cgo-место). LLM — локальный (llama.go, pure Go) или облачный OpenAI-совместимый по выбору пользователя (см. ADR-004); apiKey хранится зашифрованным (AES-256-GCM, мастер-ключ в Keychain).
+1. **Тесты — before код.** Никакой реализации без зелёных тестов и ревью (TDD, Definition of Done).
+2. **STT — только локально** (whisper.cpp, единственное cgo-место, ADR-001/005/011). LLM — облачный
+   OpenAI-совместимый (адаптер `internal/adapter/llm/openai`, ADR-004); в dev ключ задаётся через
+   `LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL` (env-оверрайд в `app.go`), в прод — через агента с зашифрованным
+   apiKey (AES-256-GCM, мастер-ключ в Keychain).
 3. **Изменение контракта или архитектуры требует ADR** (см. `docs/adr/README.md`).
 4. **Чистые зависимости:** `adapter → port ← usecase ← bind ← frontend`. Ни `usecase`, ни `port` не зависят от реализаций адаптеров.
+5. **Мик (говорящий пользователь)** — только история (`user` role), без автозапроса к LLM. Автоответ
+   запускает только системный звук (интервьюер), ADR-007 cancel-on-new-input.
 
 ## Как запустить проверки
 
 Соответствует GitHub Actions (`.github/workflows/test.yml`):
 
 ```
-pnpm install            # pnpm workspace (корень репо): все пакеты + git-хуки
+pnpm install               # pnpm workspace (корень репо): все пакеты + git-хуки
 pnpm --dir frontend build  # go:embed требует frontend/src/app/dist (перед go-проверками)
-go test ./...           # Go backend (stdlib testing)
-go vet ./...           # статический анализ
-go fmt ./...           # formatting
-pnpm docs:format:check # prettier для .md (docs/, AGENTS.md, README.md)
+go test ./...              # Go backend (stdlib testing)
+go vet ./...               # статический анализ
+go fmt ./...               # formatting
+pnpm docs:format:check     # prettier для .md (AGENTS.md, README.md, docs/adr/)
 cd frontend && pnpm lint
 cd frontend && pnpm format:check
 cd frontend && pnpm test
 cd frontend && pnpm exec playwright test   # e2e
 ```
 
-Сборка: `wails build`.
+Сборка: `wails build`. Dev-запуск с облачным LLM: `LLM_API_KEY=... wails dev`.
 
 ## macOS: аудио-дев-цикл и подпись
 
