@@ -40,14 +40,22 @@ void ia_source_cb(pa_context *c, const pa_source_info *i, int eol, void *userdat
 	if (s->count == s->capacity) {
 		int nc = s->capacity ? s->capacity * 2 : 8;
 		char **n = realloc(s->names, sizeof(char*) * nc);
+		if (!n) { s->err = 1; s->done = 1; pa_threaded_mainloop_signal(s->ml, 0); return; }
+		s->names = n;
 		char **d = realloc(s->descriptions, sizeof(char*) * nc);
-		int  *f = realloc(s->defaults, sizeof(int) * nc);
-		if (!n || !d || !f) { s->err = 1; s->done = 1; pa_threaded_mainloop_signal(s->ml, 0); return; }
-		s->names = n; s->descriptions = d; s->defaults = f;
+		if (!d) { s->err = 1; s->done = 1; pa_threaded_mainloop_signal(s->ml, 0); return; }
+		s->descriptions = d;
+		int *f = realloc(s->defaults, sizeof(int) * nc);
+		if (!f) { s->err = 1; s->done = 1; pa_threaded_mainloop_signal(s->ml, 0); return; }
+		s->defaults = f;
 		s->capacity = nc;
 	}
-	s->names[s->count] = strdup(i->name);
-	s->descriptions[s->count] = strdup(i->description);
+	char *nm = strdup(i->name);
+	if (!nm) { s->err = 1; s->done = 1; pa_threaded_mainloop_signal(s->ml, 0); return; }
+	char *ds = strdup(i->description);
+	if (!ds) { free(nm); s->err = 1; s->done = 1; pa_threaded_mainloop_signal(s->ml, 0); return; }
+	s->names[s->count] = nm;
+	s->descriptions[s->count] = ds;
 	s->defaults[s->count] = (s->default_name && strcmp(i->name, s->default_name) == 0) ? 1 : 0;
 	s->count++;
 	pa_threaded_mainloop_signal(s->ml, 0);
