@@ -16,6 +16,7 @@ import (
 	"interagent/internal/adapter/llm/ollama"
 	"interagent/internal/adapter/llm/openai"
 	modelsadapter "interagent/internal/adapter/models"
+	"interagent/internal/adapter/portal"
 	"interagent/internal/adapter/storage"
 	whisperadapter "interagent/internal/adapter/stt/whisper"
 	"interagent/internal/adapter/stub"
@@ -89,7 +90,8 @@ func NewApp() *App {
 	ev := eventsimpl.New(context.TODO())
 	overlayAdapter := window.New()
 	hotkeysAdapter := stub.NewHotkeys()
-	permissionsAdapter := system.NewPermissions()
+	portalAdapter := portal.NewScreenCast()
+	permissionsAdapter := system.NewPermissions(portalAdapter, audio.PulseReachable)
 
 	factory := usecase.LLMFactory(func(cfg port.AgentConfig) (port.LLM, error) {
 		// env var overrides stored agent config
@@ -142,7 +144,7 @@ func NewApp() *App {
 	vadPath := filepath.Join(modelsDir, "ggml-silero-v6.2.0.bin")
 	sttSystem := whisperadapter.New(modelPath, vadPath, sttLanguage)
 	sttMic := whisperadapter.New(modelPath, vadPath, sttLanguage)
-	captureSystem := audio.NewSystemCapture()
+	captureSystem := audio.NewSystemCapture(portalAdapter)
 	captureMic := audio.NewMicrophoneCapture()
 	audioSystem := usecase.NewAudioPipeline(port.AudioSourceSystem, ev, captureSystem, sttSystem, llm, sessionUC)
 	audioMic := usecase.NewAudioPipeline(port.AudioSourceMic, ev, captureMic, sttMic, llm, sessionUC)

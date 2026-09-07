@@ -1,10 +1,11 @@
-//go:build !darwin
+//go:build !darwin && !linux
 
 package system
 
 import (
 	"errors"
 
+	"interagent/internal/adapter/portal"
 	"interagent/internal/port"
 )
 
@@ -12,7 +13,9 @@ import (
 // (no TCC) and OpenSettings as a no-op, matching the previous stub behaviour.
 type Permissions struct{}
 
-func NewPermissions() *Permissions { return &Permissions{} }
+func NewPermissions(_ *portal.ScreenCast, _ func() error) *Permissions {
+	return &Permissions{}
+}
 
 func (p *Permissions) Status(perm port.Permission) (bool, error) { return true, nil }
 func (p *Permissions) Request(perm port.Permission) error {

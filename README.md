@@ -12,6 +12,8 @@ Requirements: Go 1.25+, Node 22 + pnpm.
 - **Linux/Arch**: install `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator`.
   Wails v2.15 builds against webkit2gtk-4.1 (the 4.0 ABI is not in Arch's official
   repos), so every wails command must be run with the `webkit2_41` build tag.
+  Audio capture additionally needs `libpulse-dev` and `libpipewire-0.3-dev`
+  (pkg-config files for the cgo pulse-simple + PipeWire portal bridge).
 
 ```
 pnpm install                 # pnpm workspace (repo root): frontend + git hooks

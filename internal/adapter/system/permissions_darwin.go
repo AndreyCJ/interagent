@@ -48,6 +48,7 @@ import (
 	"errors"
 	"os/exec"
 
+	"interagent/internal/adapter/portal"
 	"interagent/internal/port"
 )
 
@@ -56,7 +57,7 @@ import (
 // microphone via AVFoundation, Accessibility via AX API.
 type Permissions struct{}
 
-func NewPermissions() *Permissions { return &Permissions{} }
+func NewPermissions(_ *portal.ScreenCast, _ func() error) *Permissions { return &Permissions{} }
 
 func (p *Permissions) Status(perm port.Permission) (bool, error) {
 	switch perm {
