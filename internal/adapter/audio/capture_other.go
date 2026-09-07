@@ -5,6 +5,7 @@ package audio
 import (
 	"errors"
 
+	"interagent/internal/adapter/portal"
 	"interagent/internal/port"
 )
 
@@ -21,7 +22,7 @@ func (m *MicrophoneCapture) SetDevice(id string) error            { return nil }
 
 type SystemCapture struct{}
 
-func NewSystemCapture() *SystemCapture { return &SystemCapture{} }
+func NewSystemCapture(_ *portal.ScreenCast) *SystemCapture { return &SystemCapture{} }
 
 func (s *SystemCapture) Start(onChunk func([]byte)) error {
 	return errors.New("system sound capture is not supported on this platform")
