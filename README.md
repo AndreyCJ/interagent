@@ -1,24 +1,36 @@
 # Interagent
 
-Приложение-оверлей для интервью и презентаций: слушает системный и микрофонный звук (STT),
-захватывает скриншоты (OCR), отправляет текст в облачный OpenAI-совместимый LLM и показывает
-подсказки в прозрачном окне поверх всех окон.
+An overlay app for interviews and presentations: it listens to system and microphone
+audio (STT), captures screenshots (OCR), sends the text to a cloud OpenAI-compatible
+LLM, and shows cues in a transparent window on top of all windows.
 
-**Конфиденциальность по умолчанию.** Аудио всегда остаётся на устройстве (локальный STT — whisper.cpp).
-ApiKey хранится зашифрованным (AES-256-GCM, мастер-ключ в Keychain). См. [ADR-001](docs/adr/001-local-vs-api-llm.md),
-[ADR-004](docs/adr/004-cloud-llm.md), [ADR-005](docs/adr/005-inference-without-cgo.md).
+## Getting started
 
-## Как запустить
+Requirements: Go 1.25+, Node 22 + pnpm.
+
+- **macOS 14+**: the audio dev loop requires a signed bundle — see AGENTS.md (the macOS section).
+- **Linux/Arch**: install `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator`.
+  Wails v2.15 builds against webkit2gtk-4.1 (the 4.0 ABI is not in Arch's official
+  repos), so every wails command must be run with the `webkit2_41` build tag.
 
 ```
-go generate ./...     # wails Generate
-LLM_API_KEY=... wails dev    # dev-режим с облачным LLM
-wails build           # production-сборка .app
+pnpm install                 # pnpm workspace (repo root): frontend + git hooks
+pnpm --dir frontend build    # go:embed needs frontend/src/app/dist (before Go checks)
+wails dev -tags "webkit2_41"    # dev mode
+wails build -tags "webkit2_41"  # production build (macOS → build/bin/*.app, Linux → build/bin/interagent)
 ```
 
-Разработка требует: Go 1.25+, Node 22 + pnpm, macOS 14+. Аудио-тест-цикл и подпись см. в [AGENTS.md](AGENTS.md).
+Cloud LLM is configured via the `LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL` env vars
+(env override in `app.go`). macOS audio loop: `LLM_API_KEY=... ./scripts/dev-audio.sh`
+(builds and signs the `.app` with a stable identity — `wails dev` does not work for
+audio on macOS).
 
-## Проверки
+**Linux notes.** `wails doctor` reports "Required dependencies missing: libwebkit" —
+it only probes the 4.0 ABI; this is safe to ignore. On a Wayland session launch with
+`GDK_BACKEND=x11` (the native GTK Wayland backend emits "Protocol error dispatching
+to Wayland display").
+
+## Checks
 
 ```
 go test ./... && go vet ./... && go fmt ./...     # Go

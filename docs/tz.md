@@ -96,7 +96,7 @@ Session, Message, AgentConfig, AppSettings, Shortcut, AudioDevice
 
 Каждый этап — вертикальный слайс: сначала пишутся тесты (spec / контракты), ревью и аппрув тестов, только потом реализация. Этап считается готовым, когда тесты зелёные.
 
-### Этап 1: TDD + каркас проекта
+### Этап 1: каркас проекта
 
 - Настройка инструментов: Go (`go test` + testify / gotest), фронтенд (vitest + vue-test-utils), e2e (playwright)
 - CI-пайплайн: тесты на каждый коммит (GitHub Actions)
@@ -111,10 +111,10 @@ Session, Message, AgentConfig, AppSettings, Shortcut, AudioDevice
 - Сохранение истории сессии
 - Глобальный шорткат для показа/скрытия окна и для переключения режима
 
-### Этап 3: Интеграция ЛЛМ агентов (adr-001, adr-004), транскрипция аудио (STT → LLM)
+### Этап 3: Интеграция ЛЛМ агентов, транскрипция аудио (STT → LLM)
 
 - Написать тесты на контракт STT-адаптера (захват аудио, отправка, ответ) → ревью
-- Написать тесты на интеграцию ллм агентов (adr-004)
+- Написать тесты на интеграцию ллм агентов
 - Захват аудио с микрофона и системного звука (нативное API)
 - Интеграция STT (Whisper — локально, whisper.cpp)
 - Интеграция ллм агента
@@ -135,30 +135,3 @@ Session, Message, AgentConfig, AppSettings, Shortcut, AudioDevice
 - UI для шорткатов и тем оформления
 - Автообновление (через встроенный механизм Wails / Homebrew)
 - Телеметрия (опционально, opt-in)
-
----
-
-## 9. Modules
-
-### Window (overlay)
-
-This is the core of the product. Modeled as the `Overlay` port (ADR-006), implemented in `adapter/window` + `bind`/`frontend`:
-
-- **always-on-top** — the window is above all windows (including fullscreen).
-- **click-through by default** — mouse and keyboard pass through the window (NFR-04).
-- **interactive mode** — toggled by a global shortcut (default `Cmd+Shift+Space`), manual input and settings are available in it. The mode is reflected by the `overlay:mode` event (ADR-006).
-- **single window** — multi-monitor configurations are out of scope for v1 (01-tz §7).
-- **transparency / themes** — `AppSettings.theme {dark, light, transparent}`.
-
-## Errors
-
-- **Policy.** An adapter error (STT/LLM/OCR/Storage timeout, panic, invalid response, HTTP error of the cloud LLM) **does not bring down the app**. The usecase returns an error → bind sends `app:error { stage, error }` to the frontend.
-- **Cloud.** Timeout/4xx/5xx of the cloud LLM (NFR-06) → fallback to the local LLM if available; otherwise — a message in the overlay.
-- **Behavior.** On any error the frontend shows a clear message in the overlay and a retry option (NFR-06).
-- **Logging.** All errors → local log `timestamp, stage, context` (NFR-09). The user can export the log. No telemetry (opt-in — out of scope for v1).
-
-## Storage
-
-- All entity data (session history, agents, settings, encrypted apiKey) — locally, on the device. Not synced anywhere.
-- Storage technology — SQLite (pure-Go, no cgo), see ADR-003.
-- `apiKey` is stored encrypted (AES-256-GCM, NFR-11); the master key — in macOS Keychain (ADR-004).
