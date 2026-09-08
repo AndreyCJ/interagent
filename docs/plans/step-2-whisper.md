@@ -6,6 +6,7 @@ implementation without green tests and review. `scripts/build-whisper.sh` before
 
 PREREQUISITE: Step 1 (Linux audio) has already been merged. This branch is taken from that merge,
 so the following are ALREADY DONE and must NOT be clobbered:
+
 - `internal/adapter/audio/capture_linux.go` + pulse/pipwire cgo files, `capture_other.go` narrowed
   to `!darwin && !linux`.
 - `internal/adapter/system/permissions_linux.go`, `permissions_other.go` narrowed, linux
@@ -13,9 +14,10 @@ so the following are ALREADY DONE and must NOT be clobbered:
 - Frontend `useAudio.ts` uses structured permission keys (no string-matching).
 - ADR-005 amended (second cgo exception: Linux audio), new `NNN-linux-audio-capture.md` ADR,
   linux notes in ADR-007/008, AGENTS.md "cgo places" wording updated.
-Do NOT touch any of those linux files; only the whisper/transcription scope below.
+  Do NOT touch any of those linux files; only the whisper/transcription scope below.
 
 ## Context (verified)
+
 - STT = local whisper.cpp, cgo exception #1 (ADR-005). Module
   `github.com/ggerganov/whisper.cpp/bindings/go` is wired via `go.mod`:
   `replace ... => ./third_party/whisper-bindings`.
@@ -29,6 +31,7 @@ Do NOT touch any of those linux files; only the whisper/transcription scope belo
   currently passes `nil` for onPartial). ADRs: `docs/adr/005`, `docs/adr/007`.
 
 ## Goal 1 — eliminate the forked binding
+
 Verified: `third_party/whisper-bindings/` is a full copy of the submodule's `bindings/go`
 differing ONLY in cgo directives in `whisper.go` (adds `-I` includes + `-L` lib dir). The
 submodule's own binding already carries darwin platform flags but lacks include/lib-dir flags.
@@ -36,13 +39,14 @@ Step 1's audio cgo files (pulse/pipwire) use per-file `#cgo pkg-config` — they
 global env vars below, so no conflict.
 
 Steps:
+
 1. Delete `third_party/whisper-bindings/`.
 2. `go.mod`: `replace github.com/ggerganov/whisper.cpp/bindings/go => ./third_party/whisper.cpp/bindings/go`;
    `go mod tidy` (keep Step 1's godbus direct dep and any new deps intact).
 3. cgo flags via env: in `scripts/build-whisper.sh` (+ CI `.github/workflows/test.yml`, keeping
    Step 1's linux job intact) export `CGO_CFLAGS=-I<abs>/whisper.cpp/include
-   -I<abs>/whisper.cpp/ggml/include` and `CGO_LDFLAGS=-L<abs>/whisper.cpp/dist/lib -lwhisper
-   -lggml -lggml-base -lggml-cpu -lm -lstdc++` (add `-fopenmp` on linux) BEFORE `go build`/`go test`.
+-I<abs>/whisper.cpp/ggml/include` and `CGO_LDFLAGS=-L<abs>/whisper.cpp/dist/lib -lwhisper
+-lggml -lggml-base -lggml-cpu -lm -lstdc++` (add `-fopenmp` on linux) BEFORE `go build`/`go test`.
    Resolve paths absolute from repo root (`${SRCDIR}` only works in package files). Consider moving
    build output from inside the submodule to `build/whisper/lib` (update `.gitignore`).
 4. Repo-wide search for `whisper-bindings`/fork refs; update AGENTS.md/README to say the binding
@@ -51,6 +55,7 @@ Steps:
    break linux audio build): `CGO_ENABLED=1 go build ./...` on linux/macos.
 
 ## Goal 2 — fix missed words during continuous interviewer speech
+
 Root cause (verified): binding forces `single_segment` whenever a SegmentCallback is set
 (`third_party/whisper.cpp/bindings/go/pkg/whisper/context.go` `Process()`); each `whisper_full`
 clears prior segment results; so each `Process` re-transcribes the WHOLE 5 s window into ONE
@@ -61,6 +66,7 @@ overwritten in memory (pipeline passes nil onPartial) -> front of a long turn is
 nothing emits until a pause.
 
 Design (parametrizable, pure-Go testable):
+
 1. Replace "5 s drop-oldest window" with a window trimmed relative to the CONFIRMED COMMIT POINT —
    never drop audio from the front before it's committed.
 2. Two-pass agreement flush (LocalAgreement-2 style) on each backstop `Process`:
@@ -81,6 +87,7 @@ Design (parametrizable, pure-Go testable):
 5. Preserve VAD + gate timings; do not regress the 10 s-latency / 99%-CPU fix.
 
 Tests (TDD — write first):
+
 - Unit tests with a fake `sttContext` (engine.go seam): continuous speech yields committed output
   before any silence; front-of-window words never silently dropped; phrase `onDone` still fires
   after trailing silence; no double emission between committed and done.
@@ -89,6 +96,7 @@ Tests (TDD — write first):
 - Update stream/state tests that assumed old windowing.
 
 ## ADR / docs
+
 - Amend `docs/adr/007-audio-pipeline.md`: document committed-segment emission (final history vs
   live-draft partials; "no partial events" kept, clarified as no live-draft UI partials). Keep
   Step 1's linux notes in the file.
@@ -97,11 +105,13 @@ Tests (TDD — write first):
 - Update AGENTS.md/README build instructions referencing the old path (preserve Step 1 edits).
 
 ## Verification
+
 `pnpm --dir frontend build`; `scripts/build-whisper.sh`; `go test ./...`; `go vet ./...`;
 `go fmt ./...`; `pnpm docs:format:check`. Also sanity-check a linux build still compiles with the
 step-1 pulse cgo files present (`CGO_ENABLED=1 go build ./...`).
 
 ## Merge note
+
 This is the LAST merge, applied on top of Step 1. Conflict surface with Step 1 is limited to:
 `go.mod` (replace line only), `scripts/build-whisper.sh` + `.github/workflows/test.yml` (keep Step
 1's linux job changes, only adjust the CGO env / lib-output section), `AGENTS.md`, `docs/adr/005`,

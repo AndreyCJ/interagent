@@ -6,6 +6,7 @@ Do NOT modify `internal/adapter/stt/**`, `bind_*.go`, or the whisper build wirin
 (Step 2) does the whisper/transcription work and will rebase on top of your merged branch.
 
 ## Decisions (locked)
+
 - Capture: **cgo** — `libpulse-simple` for the mic; **XDG Desktop Portal ScreenCast** audio stream
   for system sound (interviewer's app audio; user picks the source in the portal picker). This is a
   SECOND frozen cgo exception -> amend ADR-005.
@@ -14,6 +15,7 @@ Do NOT modify `internal/adapter/stt/**`, `bind_*.go`, or the whisper build wirin
   fallback to `.monitor`).
 
 ## Context (verified)
+
 - `internal/adapter/audio/capture_other.go` (`//go:build !darwin`) stubs `MicrophoneCapture` and
   `SystemCapture` with "not supported"; `Devices()/SetDevice()` return `(nil,nil)`.
 - `internal/adapter/system/permissions_other.go` (`//go:build !darwin`) returns `true` for every
@@ -21,7 +23,7 @@ Do NOT modify `internal/adapter/stt/**`, `bind_*.go`, or the whisper build wirin
   macOS deep links.
 - Darwin impls in `capture_darwin.go`/`capture_darwin_objc.go`/`permissions_darwin.go` — DO NOT touch.
 - Ports (platform-neutral): `internal/port/audio.go` `AudioInput{Start(onChunk func([]byte))/Stop()
-  /Devices()/SetDevice(id)}`, `AudioDevice{ID,Name,IsDefault}`; `internal/port/permissions.go`
+/Devices()/SetDevice(id)}`, `AudioDevice{ID,Name,IsDefault}`; `internal/port/permissions.go`
   `Permissions{Status/Request/OpenSettings(perm)}`, `Permission` =
   "microphone"|"screen-recording"|"accessibility".
 - Capture contract: float32 mono 48 kHz little-endian PCM chunks in onChunk (STT resamples 48k->16k).
@@ -32,6 +34,7 @@ Do NOT modify `internal/adapter/stt/**`, `bind_*.go`, or the whisper build wirin
   `pa_simple` may fail to connect — detect and surface an actionable error.
 
 ## Part 1 — cgo foundation + build tags
+
 1. Create `internal/adapter/audio/capture_linux.go` (`//go:build linux`). Narrow `capture_other.go`
    to `//go:build !darwin && !linux` (Windows keeps the stub).
 2. Pulse cgo in one small file `capture_pulse_linux.go`: `#cgo pkg-config: libpulse-simple`
@@ -44,8 +47,9 @@ Do NOT modify `internal/adapter/stt/**`, `bind_*.go`, or the whisper build wirin
    produced there — Step 2 will rework that; keep it working as-is today.
 
 ## Part 2 — MicrophoneCapture (Linux)
+
 - `pa_simple_new(NULL, "interagent", PA_STREAM_RECORD, device|NULL, "record",
-  spec{Float32LE, 48000, 1}, NULL, &err)`; read loop -> onChunk in ~100 ms float32-mono chunks;
+spec{Float32LE, 48000, 1}, NULL, &err)`; read loop -> onChunk in ~100 ms float32-mono chunks;
   `Stop()` -> `pa_simple_free`.
 - `Devices()`: enumerate `pa_source_info_list` -> source name = ID, description = Name, default
   source `IsDefault=true`. `SetDevice(id)` stores + reopens with that device.
@@ -53,6 +57,7 @@ Do NOT modify `internal/adapter/stt/**`, `bind_*.go`, or the whisper build wirin
 - Unit-test pure-Go parts (device-name/shape mapping) without a live daemon.
 
 ## Part 3 — SystemCapture (Linux): XDG portal ScreenCast audio stream
+
 1. DBus portal flow (pure Go, godbus): `org.freedesktop.portal.ScreenCast` —
    CreateSession -> SelectSources (source_type incl. MONITOR/WINDOW, audio) -> Start ->
    on `Request::Response` signal read `streams` `[node_id, props]`; set `persist_mode=2` for a
@@ -66,8 +71,10 @@ Do NOT modify `internal/adapter/stt/**`, `bind_*.go`, or the whisper build wirin
 4. `Stop()`: destroy stream/core, close fd; store/load the restore token under XDG data dir.
 
 ## Part 4 — Permissions (Linux)
+
 Create `internal/adapter/system/permissions_linux.go` (`//go:build linux`); narrow
 `permissions_other.go` to `!darwin && !linux`.
+
 - `microphone` -> `org.freedesktop.portal.Camera`: Status = portal available + mic session usable
   (or honest "granted on first successful mic open"); Request = portal Camera flow.
 - `screen-recording` -> `org.freedesktop.portal.ScreenCast`: Status = valid restore token /
@@ -79,6 +86,7 @@ Create `internal/adapter/system/permissions_linux.go` (`//go:build linux`); narr
 - Never lie in Status().
 
 ## Part 5 — frontend + wiring
+
 - `frontend/src/features/audio/useAudio.ts` guesses the permission by string-matching backend errors
   ("microphone"/"screen-recording") — wrong on Linux. Make the backend surface the permission key
   as structured data in `app:error`/`app:permission` payloads, and have the frontend use it instead
@@ -88,6 +96,7 @@ Create `internal/adapter/system/permissions_linux.go` (`//go:build linux`); narr
   signature is left untouched by this session.
 
 ## ADR / docs
+
 - Amend `docs/adr/005`: Linux audio = second frozen cgo exception (pulse-simple + minimal PipeWire
   portal-node bridge), same freeze rules as whisper.cpp. Update AGENTS.md "single cgo place" wording.
 - New ADR `docs/adr/NNN-linux-audio-capture.md`: mic = pulse default source; system = XDG ScreenCast
@@ -97,6 +106,7 @@ Create `internal/adapter/system/permissions_linux.go` (`//go:build linux`); narr
   phrase-end section (Step 2 owns that).
 
 ## Verification
+
 - Go: `go vet ./...`; `go fmt ./...`; `go test ./...` (needs `scripts/build-whisper.sh` first, as-is
   today). New unit tests for permission mapping and device-shape mapping (mocked). Portal flow is
   manual (below).
@@ -111,6 +121,7 @@ Create `internal/adapter/system/permissions_linux.go` (`//go:build linux`); narr
 - `pnpm docs:format:check`.
 
 ## Merge note
+
 Merge this branch FIRST. Step 2 (whisper/transcription) will rebase onto your merge. Keep your
 branch additive: do not change `internal/adapter/stt/**`, the `STT` port signature, or
 `internal/usecase/audiopipeline.go`'s onDone/onPartial wiring.
