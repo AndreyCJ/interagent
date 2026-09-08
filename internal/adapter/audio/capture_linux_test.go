@@ -114,3 +114,28 @@ func TestMicrophoneCapture_WithFakeReader_PushesChunkAndStops(t *testing.T) {
 		t.Fatalf("Stop() on unstarted capture: %v", err)
 	}
 }
+
+func TestSystemCapture_Start_WithoutPortal_ReturnsHonestError(t *testing.T) {
+	s := NewSystemCapture(nil)
+	if err := s.Start(func([]byte) {}); err == nil {
+		t.Fatal("Start() = nil, want honest error when portal is nil")
+	}
+}
+
+func TestSystemCapture_Stop_Unstarted_Noop(t *testing.T) {
+	s := NewSystemCapture(nil)
+	if err := s.Stop(); err != nil {
+		t.Fatalf("Stop() on unstarted capture: %v", err)
+	}
+}
+
+func TestSystemCapture_Start_NilPortal_NamesScreencastPortal(t *testing.T) {
+	s := NewSystemCapture(nil)
+	err := s.Start(func([]byte) {})
+	if err == nil {
+		t.Fatal("Start() = nil, want honest error for a nil portal")
+	}
+	if !strings.Contains(err.Error(), "xdg ScreenCast portal") {
+		t.Errorf("Start() error = %q, want it to name the ScreenCast portal", err)
+	}
+}

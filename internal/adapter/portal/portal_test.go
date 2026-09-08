@@ -286,6 +286,70 @@ func TestRestoreToken_EmptyRefused(t *testing.T) {
 	}
 }
 
+// fakeStreamConn implements dbusConn for Stream tests, counting session Close
+// calls via a counting BusObject. Only Object is exercised by Stream.Close.
+type fakeStreamConn struct {
+	sessionCloseCalls int
+}
+
+func (f *fakeStreamConn) Object(dest string, path dbus.ObjectPath) dbus.BusObject {
+	return &countingBusObject{calls: &f.sessionCloseCalls}
+}
+func (f *fakeStreamConn) Signal(ch chan<- *dbus.Signal)               {}
+func (f *fakeStreamConn) RemoveSignal(ch chan<- *dbus.Signal)         {}
+func (f *fakeStreamConn) AddMatchSignal(...dbus.MatchOption) error    { return nil }
+func (f *fakeStreamConn) RemoveMatchSignal(...dbus.MatchOption) error { return nil }
+func (f *fakeStreamConn) NameHasOwner(name string) (bool, error)      { return true, nil }
+func (f *fakeStreamConn) Close() error                                { return nil }
+
+type countingBusObject struct {
+	fakeBusObject
+	calls *int
+}
+
+func (c *countingBusObject) Call(method string, _ dbus.Flags, args ...interface{}) *dbus.Call {
+	*c.calls++
+	return &dbus.Call{}
+}
+
+func TestStream_TakeFD_TransfersOwnership(t *testing.T) {
+	st := &Stream{fd: 7}
+	if fd := st.TakeFD(); fd != 7 {
+		t.Fatalf("TakeFD() = %d, want 7", fd)
+	}
+	if fd := st.FD(); fd != -1 {
+		t.Errorf("FD() after TakeFD = %d, want -1 (fd no longer owned by Stream)", fd)
+	}
+	if fd := st.TakeFD(); fd != -1 {
+		t.Errorf("second TakeFD() = %d, want -1 (fd already taken)", fd)
+	}
+	// Close after TakeFD must still destroy the session but not sever the fd.
+	if err := st.Close(); err != nil {
+		t.Errorf("Close() after TakeFD: %v", err)
+	}
+}
+
+func TestStream_Close_Idempotent_SkipsTakenFD(t *testing.T) {
+	fake := &fakeStreamConn{}
+	st := &Stream{
+		SessionPath: dbus.ObjectPath("/org/freedesktop/portal/desktop/session/1/9"),
+		conn:        fake,
+		fd:          -1,
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("Close(): %v", err)
+	}
+	if fake.sessionCloseCalls != 1 {
+		t.Errorf("session Close calls = %d, want 1", fake.sessionCloseCalls)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("second Close(): %v", err)
+	}
+	if fake.sessionCloseCalls != 1 {
+		t.Errorf("session Close calls after idempotent re-Close = %d, want 1", fake.sessionCloseCalls)
+	}
+}
+
 // TestLiveScreenCastGrant exercises the honest wire flow against the real
 // session bus: portal presence -> picker negotiation -> stream attempts.
 // It is gated behind INTERAGENT_PORTAL_INTEGRATION=1 and tolerates the human

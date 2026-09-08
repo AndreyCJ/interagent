@@ -376,7 +376,24 @@ type Stream struct {
 	closed       bool
 }
 
-func (st *Stream) FD() int { return st.fd }
+func (st *Stream) FD() int {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.fd
+}
+
+// TakeFD transfers ownership of the PipeWire fd to the caller and clears the
+// Stream's reference, so a later Close will not close it again. The PipeWire
+// cgo consumer takes ownership of the fd on connect, which makes a subsequent
+// Stream.Close a double-close of a possibly-reused fd (Ruling 1); Streams
+// handed to the consumer must therefore be taken first.
+func (st *Stream) TakeFD() int {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	fd := st.fd
+	st.fd = -1
+	return fd
+}
 
 // Close destroys the underlying portal session (DestroySession semantics via
 // org.freedesktop.portal.Session.Close) and releases the PipeWire fd. Idempotent.

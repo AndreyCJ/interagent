@@ -199,16 +199,66 @@ func (m *MicrophoneCapture) Reachable() error {
 func PulseReachable() error { return pulseReachable() }
 
 type SystemCapture struct {
-	mu      sync.Mutex
-	started bool
+	mu       sync.Mutex
+	portal   *portal.ScreenCast
+	stream   *portal.Stream
+	consumer *pwConsumer
+	started  bool
 }
 
-func NewSystemCapture(*portal.ScreenCast) *SystemCapture { return &SystemCapture{} }
+func NewSystemCapture(portalAdapter *portal.ScreenCast) *SystemCapture {
+	return &SystemCapture{portal: portalAdapter}
+}
 
 func (s *SystemCapture) Start(onChunk func([]byte)) error {
-	return errors.New("system sound capture is not available yet on linux (portal + pipewire land in Task 4)")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.started {
+		return nil
+	}
+	if s.portal == nil {
+		return errors.New("system sound capture requires the xdg ScreenCast portal")
+	}
+	ctx := context.Background()
+	if !s.portal.Available(ctx) {
+		return errors.New("xdg desktop portal ScreenCast is not available — install xdg-desktop-portal and a backend (hyprland/gtk/wlr)")
+	}
+	st, err := s.portal.OpenStream(ctx)
+	if err != nil {
+		return err // includes honest "selection was cancelled" for a dismissed picker
+	}
+	// TakeFD transfers the fd to the PipeWire consumer; the portal Stream no
+	// longer owns it (Ruling 1 — Stream.Close must not double-close a
+	// PipeWire-owned descriptor).
+	fd, nodeID := st.TakeFD(), int(st.NodeID)
+	c, err := newPWConsumer(fd, nodeID, CaptureSampleRate, onChunk)
+	if err != nil {
+		_ = st.Close()
+		return err
+	}
+	s.stream = st
+	s.consumer = c
+	s.started = true
+	return c.Start()
 }
 
-func (s *SystemCapture) Stop() error                          { return nil }
+func (s *SystemCapture) Stop() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.started {
+		return nil
+	}
+	s.started = false
+	if s.consumer != nil {
+		_ = s.consumer.Close()
+		s.consumer = nil
+	}
+	if s.stream != nil {
+		_ = s.stream.Close()
+		s.stream = nil
+	}
+	return nil
+}
+
 func (s *SystemCapture) Devices() ([]port.AudioDevice, error) { return nil, nil }
 func (s *SystemCapture) SetDevice(id string) error            { return nil }
