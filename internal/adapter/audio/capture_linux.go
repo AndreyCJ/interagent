@@ -82,11 +82,18 @@ func pulseReachable() error {
 	return errors.New("pulse daemon not reachable (is pipewire-pulse running?)")
 }
 
+// MicrophoneCapture pumps one pulse-simple reader in a dedicated goroutine
+// that OWNS the reader's lifecycle: the pump reads, and on cancellation or
+// read error it closes the reader itself, then closes done, and only then
+// returns. Stop()/SetDevice() never free the reader from the caller thread —
+// pulse streams are not thread-safe, and C.pa_simple_read blocks for a full
+// ~100 ms frame, so a caller-side Close would free the reader while the pump
+// is mid-Read (use-after-free).
 type MicrophoneCapture struct {
 	mu      sync.Mutex
-	reader  pulseReader
 	device  string
 	started bool
+	done    chan struct{} // closed by the pump goroutine when it fully exits
 	cancel  context.CancelFunc
 	onChunk func([]byte)
 }
@@ -106,26 +113,34 @@ func (m *MicrophoneCapture) Start(onChunk func([]byte)) error {
 	if err != nil {
 		return pulseHintErr(err)
 	}
-	m.reader = r
-	m.onChunk = onChunk
-	m.started = true
+	done := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	go m.pump(ctx)
+	m.done = done
+	m.onChunk = onChunk
+	m.started = true
+	go m.pump(ctx, r, onChunk, done)
 	return nil
 }
 
-func (m *MicrophoneCapture) pump(ctx context.Context) {
+// pump reads with the LOCAL reader reference it was handed, so it never reads
+// a field the caller might reassign (no data race). On cancellation or read
+// error it stops reading, closes the reader via defer, and only then closes
+// done — a joiner of <-done is guaranteed the reader was already freed.
+// Deferred order matters (LIFO): Close runs before close(done).
+func (m *MicrophoneCapture) pump(ctx context.Context, r pulseReader, onChunk func([]byte), done chan struct{}) {
 	buf := make([]byte, pulseChunkBytes(CaptureSampleRate))
+	defer func() { close(done) }()
+	defer func() { _ = r.Close() }()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
-		n, err := m.reader.Read(buf)
-		if n > 0 && m.onChunk != nil {
-			m.onChunk(buf[:n])
+		n, err := r.Read(buf)
+		if n > 0 && onChunk != nil {
+			onChunk(buf[:n])
 		}
 		select {
 		case <-ctx.Done():
@@ -138,6 +153,10 @@ func (m *MicrophoneCapture) pump(ctx context.Context) {
 	}
 }
 
+// Stop cancels the pump and JOINS it (<-done) before returning. On a live mic
+// pa_simple_read returns within one ~100 ms frame, so the join is quick; if a
+// dead daemon ever made pa_simple_read block indefinitely, Stop would wait for
+// the pump rather than free the reader under it — correctness over liveness.
 func (m *MicrophoneCapture) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -148,9 +167,10 @@ func (m *MicrophoneCapture) Stop() error {
 	if m.cancel != nil {
 		m.cancel()
 	}
-	if m.reader != nil {
-		return m.reader.Close()
-	}
+	done := m.done
+	m.cancel = nil
+	m.done = nil
+	<-done // pump closed the reader itself before closing done
 	return nil
 }
 
@@ -171,17 +191,33 @@ func (m *MicrophoneCapture) SetDevice(id string) error {
 	if m.device == id {
 		return nil
 	}
-	if m.started && openPulseReader != nil {
-		if m.reader != nil {
-			if err := m.reader.Close(); err != nil {
-				return err
-			}
+	if m.started {
+		// Same cancel+join as Stop(): the in-use reader is closed by the pump
+		// goroutine, never by us while it could be blocked in Read.
+		if m.cancel != nil {
+			m.cancel()
+		}
+		done := m.done
+		m.cancel = nil
+		m.done = nil
+		<-done
+		if openPulseReader == nil {
+			m.started = false
+			m.device = id
+			return nil
 		}
 		r, err := openPulseReader(id, CaptureSampleRate, pulseChunkBytes(CaptureSampleRate))
 		if err != nil {
+			// The old reader is already freed by the pump; stop cleanly rather
+			// than claim a live capture that has no reader.
+			m.started = false
 			return pulseHintErr(err)
 		}
-		m.reader = r
+		ndone := make(chan struct{})
+		ctx, cancel := context.WithCancel(context.Background())
+		m.cancel = cancel
+		m.done = ndone
+		go m.pump(ctx, r, m.onChunk, ndone)
 	}
 	m.device = id
 	return nil
