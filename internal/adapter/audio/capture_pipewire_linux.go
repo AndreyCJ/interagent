@@ -56,7 +56,11 @@ static int ia_pw_connect(ia_pw_state *st, int fd, uint32_t node_id, uint32_t sam
 		PW_KEY_APP_ID, "interagent",
 		PW_KEY_APP_NAME, "interagent",
 		NULL);
-	// pw_context_new takes ownership of props on every path (no double free).
+	// pw_context_new takes ownership of props on every path (no double free):
+	// verified against PipeWire 1.6.8 src/pipewire/context.c — the pointer is
+	// stored directly (this->properties = properties, line 452) and freed by
+	// pw_properties_free on the calloc-fail path (line 409) and by
+	// pw_context_destroy (line 672) on both error_cleanup and normal teardown.
 	st->context = pw_context_new(pw_main_loop_get_loop(st->loop), props, 0);
 	if (st->context == NULL) { close(fd); return -1; }
 	st->core = pw_context_connect_fd(st->context, fd, NULL, 0);
@@ -127,6 +131,7 @@ import (
 type pwConsumer struct {
 	state     *C.ia_pw_state
 	started   bool
+	closed    bool
 	closeOnce sync.Once
 	done      chan struct{}
 	onChunk   func([]byte)
@@ -175,10 +180,23 @@ func newPWConsumer(fd, nodeID, sampleRate int, onChunk func([]byte)) (*pwConsume
 	return &pwConsumer{state: state, done: make(chan struct{}), onChunk: onChunk}, nil
 }
 
+// Start spawns the single pw_main_loop_run goroutine. It is idempotent: a
+// second Start on an already-started consumer is a no-op (exactly one loop
+// goroutine owns the done channel), and Start after Close is refused.
 func (c *pwConsumer) Start() error {
 	consumerMu.Lock()
+	defer consumerMu.Unlock()
+	if c.closed {
+		return errors.New("pw consumer: already closed")
+	}
+	if c.started {
+		return nil
+	}
+	if c.state == nil {
+		return errors.New("pw consumer: not connected")
+	}
 	activeChunk = c.onChunk
-	consumerMu.Unlock()
+	c.started = true
 	go func() {
 		defer close(c.done)
 		C.ia_pw_run(c.state)
@@ -186,12 +204,34 @@ func (c *pwConsumer) Start() error {
 	return nil
 }
 
+// Close terminates the consumer. For a started consumer it quits the main
+// loop and waits for the run goroutine to return before freeing the C state.
+// For a consumer whose Start was never called there is no goroutine to own
+// done, so Close completes the channel itself and returns immediately: nothing
+// is running, so there is nothing to quit, and waiting on done would hang
+// forever (the pre-fix bug). Teardown of a connected-but-never-started
+// consumer only frees the C state (no loop iteration ever ran).
 func (c *pwConsumer) Close() error {
 	var closeErr error
 	c.closeOnce.Do(func() {
 		consumerMu.Lock()
-		activeChunk = nil
+		c.closed = true
+		started := c.started
+		if started {
+			activeChunk = nil
+		}
 		consumerMu.Unlock()
+
+		if !started {
+			if c.done != nil {
+				close(c.done)
+			}
+			if c.state != nil {
+				C.ia_pw_free(c.state)
+			}
+			return
+		}
+
 		C.ia_pw_quit(c.state)
 		<-c.done
 		C.ia_pw_free(c.state)

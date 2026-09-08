@@ -260,5 +260,8 @@ func (s *SystemCapture) Stop() error {
 	return nil
 }
 
+// dev name comes from the PipeWire node info (pw_node_info), which the C state
+// does not yet decode (2026-09, Step-1 scope); Devices() reports no devices
+// until then — honest, not fabricated. SetDevice is therefore a no-op too.
 func (s *SystemCapture) Devices() ([]port.AudioDevice, error) { return nil, nil }
 func (s *SystemCapture) SetDevice(id string) error            { return nil }

@@ -17,9 +17,9 @@ func isOpenFD(t *testing.T, fd int) bool {
 	return errno == 0
 }
 
-// CloseThenCloseReason is the double-close regression guard for Ruling 1: the
-// fd must be released by exactly one owner. TakeFD hands ownership to the
-// PipeWire consumer; Stream.Close must not close the taken fd.
+// Regression guard for Ruling 1: the fd must be released by exactly one owner.
+// TakeFD hands ownership to the PipeWire consumer; Stream.Close must not close
+// the taken fd.
 func TestStream_TakeFD_ThenClose_LeavesFDForCaller(t *testing.T) {
 	r, w, err := os.Pipe()
 	if err != nil {

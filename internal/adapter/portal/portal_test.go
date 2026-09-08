@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -397,5 +398,219 @@ func TestLiveScreenCastGrant(t *testing.T) {
 		t.Logf("Grant returned the honest user-cancel error: %v", err)
 	default:
 		t.Errorf("Grant failed unexpectedly at wire level: %v", err)
+	}
+}
+
+// scriptedConn drives open() through a canned portal ScreenCast negotiation.
+// Each portal method returns its request handle and injects the matching
+// Request::Response signal into the channel open() waits on, so the honest
+// wire flow (CreateSession -> SelectSources -> Start -> OpenPipeWireRemote)
+// can be scripted with per-step rejection statuses. Session Close calls made
+// by the half-open-session cleanup are recorded on screenCastIface.
+type scriptedConn struct {
+	mu                sync.Mutex
+	sigCh             chan<- *dbus.Signal
+	createReq         dbus.ObjectPath
+	selectReq         dbus.ObjectPath
+	startReq          dbus.ObjectPath
+	createStatus      uint32
+	selectStatus      uint32
+	startStatus       uint32
+	startResults      map[string]dbus.Variant
+	pipewireErr       error
+	pipewireFD        dbus.UnixFD
+	sessionPath       dbus.ObjectPath
+	sessionCloseCalls int
+	sessionCloseDest  string
+}
+
+func newScriptedConn() *scriptedConn {
+	return &scriptedConn{
+		createReq:   "/ia/request/create",
+		selectReq:   "/ia/request/select",
+		startReq:    "/ia/request/start",
+		sessionPath: dbus.ObjectPath("/org/freedesktop/portal/desktop/session/ia/1"),
+		pipewireFD:  37,
+		startResults: map[string]dbus.Variant{
+			"streams": dbus.MakeVariant([]interface{}{
+				[]interface{}{uint32(7), map[string]dbus.Variant{}},
+			}),
+		},
+	}
+}
+
+func (s *scriptedConn) respond(path dbus.ObjectPath, status uint32, results map[string]dbus.Variant) *dbus.Call {
+	s.mu.Lock()
+	sigCh := s.sigCh
+	s.mu.Unlock()
+	if sigCh != nil {
+		sigCh <- &dbus.Signal{
+			Name:   requestIface + ".Response",
+			Path:   path,
+			Sender: portalName,
+			Body:   []interface{}{status, results},
+		}
+	}
+	return &dbus.Call{Body: []interface{}{path}}
+}
+
+func (s *scriptedConn) Object(dest string, path dbus.ObjectPath) dbus.BusObject {
+	return &scriptedBusObject{c: s, path: path}
+}
+func (s *scriptedConn) Signal(ch chan<- *dbus.Signal) {
+	s.mu.Lock()
+	s.sigCh = ch
+	s.mu.Unlock()
+}
+func (s *scriptedConn) RemoveSignal(_ chan<- *dbus.Signal)          {}
+func (s *scriptedConn) AddMatchSignal(...dbus.MatchOption) error    { return nil }
+func (s *scriptedConn) RemoveMatchSignal(...dbus.MatchOption) error { return nil }
+func (s *scriptedConn) NameHasOwner(_ string) (bool, error)         { return true, nil }
+func (s *scriptedConn) Close() error                                { return nil }
+
+type scriptedBusObject struct {
+	c    *scriptedConn
+	path dbus.ObjectPath
+}
+
+func (o *scriptedBusObject) Call(method string, _ dbus.Flags, args ...interface{}) *dbus.Call {
+	switch method {
+	case screenCastIface + ".CreateSession":
+		return o.c.respond(o.c.createReq, o.c.createStatus, map[string]dbus.Variant{
+			"session_handle": dbus.MakeVariant(o.c.sessionPath),
+		})
+	case screenCastIface + ".SelectSources":
+		return o.c.respond(o.c.selectReq, o.c.selectStatus, map[string]dbus.Variant{})
+	case screenCastIface + ".Start":
+		return o.c.respond(o.c.startReq, o.c.startStatus, o.c.startResults)
+	case screenCastIface + ".OpenPipeWireRemote":
+		if o.c.pipewireErr != nil {
+			return &dbus.Call{Err: o.c.pipewireErr}
+		}
+		return &dbus.Call{Body: []interface{}{o.c.pipewireFD}}
+	case sessionIface + ".Close":
+		o.c.mu.Lock()
+		o.c.sessionCloseCalls++
+		o.c.sessionCloseDest = string(o.path)
+		o.c.mu.Unlock()
+		return &dbus.Call{}
+	}
+	return &dbus.Call{Err: dbus.Error{Name: "org.freedesktop.portal.Error.Failed"}}
+}
+func (o *scriptedBusObject) CallWithContext(_ context.Context, method string, f dbus.Flags, args ...interface{}) *dbus.Call {
+	return o.Call(method, f, args...)
+}
+func (o *scriptedBusObject) Go(method string, f dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+	c := o.Call(method, f, args...)
+	if ch != nil {
+		ch <- c
+	}
+	return c
+}
+func (o *scriptedBusObject) GoWithContext(_ context.Context, method string, f dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+	return o.Go(method, f, ch, args...)
+}
+func (o *scriptedBusObject) AddMatchSignal(iface, member string, options ...dbus.MatchOption) *dbus.Call {
+	return &dbus.Call{}
+}
+func (o *scriptedBusObject) RemoveMatchSignal(iface, member string, options ...dbus.MatchOption) *dbus.Call {
+	return &dbus.Call{}
+}
+func (o *scriptedBusObject) GetProperty(p string) (dbus.Variant, error) { return dbus.Variant{}, nil }
+func (o *scriptedBusObject) StoreProperty(p string, value interface{}) error {
+	return nil
+}
+func (o *scriptedBusObject) SetProperty(p string, v interface{}) error { return nil }
+func (o *scriptedBusObject) Destination() string                       { return "" }
+func (o *scriptedBusObject) Path() dbus.ObjectPath                     { return "" }
+
+func TestOpen_CreateSessionRejected_NoSessionToDestroy(t *testing.T) {
+	c := newScriptedConn()
+	c.createStatus = 5
+	sc := NewScreenCastConn(c)
+
+	_, err := sc.open(context.Background(), "")
+	if err == nil || !strings.Contains(err.Error(), "create session was rejected") {
+		t.Fatalf("open() = %v, want create-session rejection", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessionCloseCalls != 0 {
+		t.Errorf("session Close calls = %d, want 0 (no session was created)", c.sessionCloseCalls)
+	}
+}
+
+func TestOpen_SelectionRejected_DestroysHalfOpenSession(t *testing.T) {
+	c := newScriptedConn()
+	c.selectStatus = 1
+	sc := NewScreenCastConn(c)
+
+	_, err := sc.open(context.Background(), "")
+	if err == nil || !strings.Contains(err.Error(), "selection was cancelled") {
+		t.Fatalf("open() = %v, want selection-cancelled rejection", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessionCloseCalls != 1 {
+		t.Fatalf("session Close calls = %d, want 1", c.sessionCloseCalls)
+	}
+	if c.sessionCloseDest != string(c.sessionPath) {
+		t.Errorf("session Close called on %q, want %q", c.sessionCloseDest, c.sessionPath)
+	}
+}
+
+func TestOpen_StartRejected_DestroysHalfOpenSession(t *testing.T) {
+	c := newScriptedConn()
+	c.startStatus = 2
+	sc := NewScreenCastConn(c)
+
+	_, err := sc.open(context.Background(), "")
+	if err == nil || !strings.Contains(err.Error(), "start was rejected") {
+		t.Fatalf("open() = %v, want start rejection", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessionCloseCalls != 1 {
+		t.Fatalf("session Close calls = %d, want 1", c.sessionCloseCalls)
+	}
+	if c.sessionCloseDest != string(c.sessionPath) {
+		t.Errorf("session Close called on %q, want %q", c.sessionCloseDest, c.sessionPath)
+	}
+}
+
+func TestOpen_PipewireOpenFailure_DestroysHalfOpenSession(t *testing.T) {
+	c := newScriptedConn()
+	c.pipewireErr = dbus.Error{Name: "org.freedesktop.portal.Error.Failed"}
+	sc := NewScreenCastConn(c)
+
+	_, err := sc.open(context.Background(), "")
+	if err == nil || !strings.Contains(err.Error(), "open pipewire") {
+		t.Fatalf("open() = %v, want pipewire-open failure", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessionCloseCalls != 1 {
+		t.Fatalf("session Close calls = %d, want 1", c.sessionCloseCalls)
+	}
+}
+
+func TestOpen_Success_SkipsSessionDestroy(t *testing.T) {
+	c := newScriptedConn()
+	sc := NewScreenCastConn(c)
+
+	st, err := sc.open(context.Background(), "")
+	if err != nil {
+		t.Fatalf("open() = %v, want stream", err)
+	}
+	if st.NodeID != 7 {
+		t.Errorf("NodeID = %d, want 7", st.NodeID)
+	}
+	if st.FD() != int(c.pipewireFD) {
+		t.Errorf("FD = %d, want %d", st.FD(), int(c.pipewireFD))
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessionCloseCalls != 0 {
+		t.Errorf("session Close calls = %d, want 0 (streamed)", c.sessionCloseCalls)
 	}
 }
