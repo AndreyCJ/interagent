@@ -3,16 +3,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import MicButton from '../MicButton.vue'
 import { useAudio } from '../useAudio'
 
-const { mockWails } = vi.hoisted(() => ({
-  mockWails: {
-    IsListening: vi.fn(),
-    StartListening: vi.fn(),
-    StopListening: vi.fn(),
-    OpenPermissionSettings: vi.fn(),
-  },
-}))
+const { mockWails, mockEvents } = vi.hoisted(() => {
+  const handlers = new Map<string, Set<(p: unknown) => void>>()
+  return {
+    mockWails: {
+      IsListening: vi.fn(),
+      StartListening: vi.fn(),
+      StopListening: vi.fn(),
+      OpenPermissionSettings: vi.fn(),
+    },
+    mockEvents: {
+      handlers,
+      onEvent: (name: string, cb: (p: unknown) => void) => {
+        if (!handlers.has(name)) handlers.set(name, new Set())
+        handlers.get(name)!.add(cb)
+      },
+      emit: (name: string, payload: unknown) => {
+        handlers.get(name)?.forEach(cb => cb(payload))
+      },
+    },
+  }
+})
 
 vi.mock('../../../common/utils/wails', () => mockWails)
+vi.mock('../../../common/utils/events', () => ({ onEvent: mockEvents.onEvent }))
 
 describe('MicButton', () => {
   it('shows Listen when not listening', () => {
@@ -116,15 +130,35 @@ describe('useAudio', () => {
     expect(mockWails.OpenPermissionSettings).toHaveBeenCalledWith('screen-recording')
   })
 
-  it('openSettings opens the microphone pane when mic permission is missing', async () => {
-    mockWails.IsListening.mockResolvedValue(false)
-    mockWails.StartListening.mockRejectedValue(new Error('microphone permission required'))
+  it('openSettings uses the structured permission key from app:error', async () => {
     mockWails.OpenPermissionSettings.mockResolvedValue(undefined)
-    const { error, load, toggle, openSettings } = useAudio()
-    await load()
-    await toggle()
+    const { openSettings } = useAudio()
+    mockEvents.emit('app:error', {
+      stage: 'permission',
+      permission: 'screen-recording',
+      error: 'picker cancelled',
+    })
     await openSettings()
-    expect(error.value).toBe('microphone permission required')
+    expect(mockWails.OpenPermissionSettings).toHaveBeenCalledWith('screen-recording')
+  })
+
+  it('openSettings forwards a microphone permission key when emitted', async () => {
+    mockWails.OpenPermissionSettings.mockResolvedValue(undefined)
+    const { openSettings } = useAudio()
+    mockEvents.emit('app:error', {
+      stage: 'permission',
+      permission: 'microphone',
+      error: 'mic blocked',
+    })
+    await openSettings()
     expect(mockWails.OpenPermissionSettings).toHaveBeenCalledWith('microphone')
+  })
+
+  it('openSettings falls back to screen-recording with no structured key', async () => {
+    mockWails.OpenPermissionSettings.mockResolvedValue(undefined)
+    const { openSettings } = useAudio()
+    mockEvents.emit('app:error', { stage: 'stt', error: 'boom' })
+    await openSettings()
+    expect(mockWails.OpenPermissionSettings).toHaveBeenCalledWith('screen-recording')
   })
 })

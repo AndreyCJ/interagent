@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
 	"interagent/internal/port"
@@ -62,4 +63,20 @@ func TestEnsureListeningPermissions(t *testing.T) {
 			t.Errorf("error = %q, want %q", err.Error(), "screen recording permission required for system sound")
 		}
 	})
+}
+
+func TestPermissionErrorPayload_WireContract(t *testing.T) {
+	payload := permissionErrorPayload(port.PermissionScreenCapture, errors.New("picker cancelled"))
+	if payload["stage"] != "permission" {
+		t.Errorf("stage = %v, want permission", payload["stage"])
+	}
+	if payload["permission"] != "screen-recording" {
+		t.Errorf("permission = %v, want screen-recording", payload["permission"])
+	}
+	if payload["error"] != "picker cancelled" {
+		t.Errorf("error = %v, want picker cancelled", payload["error"])
+	}
+	if _, ok := payload["error"].(string); !ok {
+		t.Errorf("error payload = %T, want string", payload["error"])
+	}
 }

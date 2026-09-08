@@ -241,9 +241,30 @@ func (a *App) StartListening() error {
 		return err
 	}
 	if err := ensureListeningPermissions(&a.permissions); err != nil {
+		a.emitPermissionError(port.PermissionScreenCapture, err)
 		return err
 	}
 	return a.audioSystem.Start()
+}
+
+// permissionErrorPayload is the app:error wire contract for a failing
+// permission gate. Extracted (pure) so the payload shape is unit-testable
+// without a Wails runtime context.
+func permissionErrorPayload(perm port.Permission, err error) map[string]any {
+	return map[string]any{
+		"stage":      "permission",
+		"permission": string(perm),
+		"error":      err.Error(),
+	}
+}
+
+// emitPermissionError surfaces the failing permission as structured data so the
+// frontend never has to string-match error messages (linux portal UX, macOS kept).
+func (a *App) emitPermissionError(perm port.Permission, err error) {
+	if a.events == nil {
+		return
+	}
+	_ = a.events.Emit("app:error", permissionErrorPayload(perm, err))
 }
 
 // rebuildSTT recreates the system whisper adapter and pipeline when the STT

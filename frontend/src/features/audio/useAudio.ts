@@ -5,11 +5,23 @@ import {
   StartListening,
   StopListening,
 } from '../../common/utils/wails'
+import { onEvent } from '../../common/utils/events'
+
+interface AppErrorPayload {
+  stage?: string
+  permission?: string
+}
 
 export function useAudio() {
   const isListening = ref(false)
   const error = ref<string | null>(null)
   const busy = ref(false)
+  const errorPermission = ref<string | null>(null)
+
+  onEvent('app:error', (payload: unknown) => {
+    const p = (payload ?? {}) as AppErrorPayload
+    if (p.permission) errorPermission.value = p.permission
+  })
 
   async function load() {
     try {
@@ -38,9 +50,8 @@ export function useAudio() {
   }
 
   async function openSettings() {
-    const target = (error.value ?? '').includes('microphone') ? 'microphone' : 'screen-recording'
-    await OpenPermissionSettings(target)
+    await OpenPermissionSettings(errorPermission.value ?? 'screen-recording')
   }
 
-  return { isListening, error, busy, load, toggle, openSettings }
+  return { isListening, error, busy, errorPermission, load, toggle, openSettings }
 }
