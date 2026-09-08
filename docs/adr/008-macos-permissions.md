@@ -95,3 +95,9 @@ The absence of any permission does not crash the app: the audio scenario require
 
 - Screen recording on macOS 14+ also provides system audio — for v1 we use one access (ScreenCaptureKit) for both image capture and system sound (stages 3–4).
 - Accessibility for hotkeys is the most "scary" permission for the user; an explanation text is mandatory (why it is needed, that the app only reads shortcuts).
+
+---
+
+**Linux note:** permissions use the XDG Desktop Portal instead of TCC: `screen-recording` = a live or
+persisted ScreenCast session; `microphone` = transport probe (pulse reachability); `accessibility`
+is unsupported and never reported granted. Details: ADR-013.

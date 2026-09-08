@@ -17,10 +17,13 @@ Interagent — приложение-оверлей, которое в реаль
 ## Ключевые правила для агентов
 
 1. **Тесты — before код.** Никакой реализации без зелёных тестов и ревью (TDD, Definition of Done).
-2. **STT — только локально** (whisper.cpp, единственное cgo-место, ADR-001/005/011). LLM — облачный
-   OpenAI-совместимый (адаптер `internal/adapter/llm/openai`, ADR-004); в dev ключ задаётся через
-   `LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL` (env-оверрайд в `app.go`), в прод — через агента с зашифрованным
-   apiKey (AES-256-GCM, мастер-ключ в Keychain).
+2. **STT — только локально** (whisper.cpp, ADR-001/005/011). **cgo — два замороженных исключения**
+   (ADR-005 + amendment, ADR-013): whisper.cpp (STT) и Linux-аудио
+   (`internal/adapter/audio/capture_{pulse,pipewire}_linux.go`, libpulse-simple + PipeWire-мост;
+   портальный D-Bus-флоу — чистый Go, `internal/adapter/portal`); остальной код — чистый Go.
+   LLM — облачный OpenAI-совместимый (адаптер `internal/adapter/llm/openai`, ADR-004); в dev ключ
+   задаётся через `LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL` (env-оверрайд в `app.go`), в прод —
+   через агента с зашифрованным apiKey (AES-256-GCM, мастер-ключ в Keychain).
 3. **Изменение контракта или архитектуры требует ADR** (см. `docs/adr/README.md`).
 4. **Чистые зависимости:** `adapter → port ← usecase ← bind ← frontend`. Ни `usecase`, ни `port` не зависят от реализаций адаптеров.
 5. **Мик (говорящий пользователь)** — только история (`user` role), без автозапроса к LLM. Автоответ

@@ -116,3 +116,14 @@ The port change is implemented through this ADR. The frontend contract is update
 - cgo for whisper.cpp is a deliberate exception; builds and tests on `macos-latest` (CI) confirm it.
 - llama.go may not support a specific fresh model — for v1, freeze a supported model list (3–8B, GGUF) and show it in the UI.
 - Multimodal with a cloud agent means sending the screenshot to the cloud — see the NFR-02 and ADR-004 updates.
+
+---
+
+**Amendment (2026-09-07, Linux audio):** Linux audio capture adds a second frozen cgo exception in
+`internal/adapter/audio`: `capture_pulse_linux.go` (libpulse-simple mic) and
+`capture_pipewire_linux.go` (minimal PipeWire node bridge for the XDG portal ScreenCast fd). Same
+freeze rules as whisper.cpp: thin native surface only, all runtime logic pure Go, guarded by
+`//go:build linux && cgo`. The portal D-Bus flow itself is pure Go (`internal/adapter/portal`,
+godbus). Linux build deps: `libpulse-dev`, `libpipewire-0.3-dev`. This supersedes the "only cgo
+place" / "cgo allowed only for whisper.cpp" wording above — whisper.cpp remains the only STT cgo
+place. Full record: ADR-013.

@@ -15,6 +15,7 @@
 | ADR-009 | Narrow storage interfaces (ISP)                   | Accepted | 2026-08-01 | `port.Storage` split into `SessionStorage`, `AgentStorage`, `SettingsStorage`. Usecases depend only on what they need, test mocks minimal. |
 | ADR-011 | Local LLM via Ollama (separate process)           | Accepted | 2026-08-03 | Ollama app as local LLM (REST on `localhost:11434`), streaming `LLM` port; supersedes the LLM part of ADR-005 (llama.go).                  |
 | ADR-012 | System sound: SCContentFilter scope + dev signing | Accepted | 2026-08-07 | SCK filter includes all apps (reliable buffers). Dev builds need a stable signing identity (SCError 1003 on Tahoe for unsigned binaries).  |
+| ADR-013 | Linux audio capture + permissions                 | Proposed | 2026-09-07 | pulse-simple mic + XDG ScreenCast audio; honest portal-based permissions. Amends ADR-005 cgo freeze.                                       |
 
 ## How to add an ADR
 

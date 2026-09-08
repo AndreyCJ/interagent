@@ -135,3 +135,9 @@ AudioInput (SCK / mic) → STT whisper.cpp (endpoint detection)
 - Capturing system sound requires the "Screen Recording" permission — user denial handling in ADR-008.
 - Cancelling generation loses the previous request's work — acceptable for the interview UX.
 - Endpoint detection can make mistakes — recognition errors are handled per NFR-06 (the user sees a message and can retry).
+
+---
+
+**Linux note:** system sound is captured via the XDG ScreenCast portal audio stream (the portal
+picker is the consent), not the default-sink monitor; the mic uses the pulse default source.
+Otherwise the behaviour is unchanged: system sound → auto-answer, mic → history. Details: ADR-013.
