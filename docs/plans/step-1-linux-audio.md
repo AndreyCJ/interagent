@@ -125,3 +125,51 @@ Create `internal/adapter/system/permissions_linux.go` (`//go:build linux`); narr
 Merge this branch FIRST. Step 2 (whisper/transcription) will rebase onto your merge. Keep your
 branch additive: do not change `internal/adapter/stt/**`, the `STT` port signature, or
 `internal/usecase/audiopipeline.go`'s onDone/onPartial wiring.
+
+## Iteration: what actually shipped (2026-09)
+
+Implemented on branch `feat/step1-linux-audio` under test-driven, review-gated
+task breakdown. This section records where reality diverged from the plan above.
+
+### Delivery (all Tasks 0-7 accepted after review)
+
+- Microphone: `libpulse-simple` cgo (`capture_pulse_linux.go`), seams in
+  `capture_linux.go` (`openPulseReader`/`listPulseSources`/`PulseReachable`),
+  honest `!cgo` fallback, ~100 ms float32-mono-48k chunks.
+- System sound: XDG Desktop Portal ScreenCast over godbus (`internal/adapter/portal`,
+  pure Go) -> PipeWire cgo audio capture (`capture_pipewire_linux.go`), fd ownership
+  transferred via `Stream.TakeFD()` (never double-closed).
+- Permissions (linux): `Status(accessibility)` is structurally incapable of `true`;
+  mic == `PulseReachable()` probe; screen == portal `Granted()`/restore token.
+  Per-platform `settingsURL` constants.
+- Wiring: `app.go` `NewApp` + `StartListening` emit structured `app:error`
+  `{stage:"permission", permission, error}`; `useAudio.ts` consumes it (string-matching
+  removed; darwin behavior byte-identical).
+- Docs: ADR-013 (linux audio capture; camera-portal mic flow deferred to Step 2),
+  ADR-005 amendment (second frozen cgo exception), ADR-007/008 notes, AGENTS.md,
+  linux CI job in .github/workflows/test.yml.
+
+### Corrections discovered during execution (facts that override the plan text)
+
+- Camera-portal mic permission was NOT implemented: mic is an honest probe, not a
+  consent flow -> deferred to Step 2 (ADR-013 explicit).
+- godbus result values arrive as `dbus.Variant`: unwrap with `.Value()` before
+  parsing (`parseStreams(results["streams"].Value())`).
+- `Start` stream payload is `a(ua{sv})` -> `[]interface{}` of `{uint32, a{sv}}`.
+- godbus v5.1.0 lacks `WithMatchPath`/`DetachSignal`/`NameHasOwner`: use
+  `WithMatch{Interface,Member,Sender}` + `RemoveSignal` + own `GetNameOwner` probe.
+- `CreateSession` on modern portals replies `(o)` request handle; the session handle
+  arrives in the Request::Response results, not the `(oo)` reply the plan assumed.
+- Threaded-mainloop code must signal on every callback path and `stop` before
+  `unlock` (both latent deadlocks in the plan's cgo were fixed at runtime).
+- `pa_simple_free` from the caller while the pump is inside `pa_simple_read` is a
+  use-after-free: the pump owns the reader lifecycle and `Stop`/`SetDevice` join it
+  first (fix in `fix(linux): join pump...`), guarded by a blocking-reader regression test.
+- Linux system capture `Devices()` returns `(nil,nil)` until node-info decoding lands
+  (honest, dated; no usecase/bind call site depends on it).
+
+### Manual verification still outstanding
+
+- First interactive portal grant on the build machine (picker consent); then persist
+  the restore token for headless re-verification (plan Step 6).
+- Live pulse reader test needs the daemon's default source to be a working mic.
