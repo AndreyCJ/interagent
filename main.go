@@ -2,6 +2,9 @@ package main
 
 import (
 	"embed"
+	"os"
+	"runtime"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -34,7 +37,25 @@ func newOverlayMenu(app *App) *menu.Menu {
 	return m
 }
 
+// forceX11OnWaylandNVIDIA forces X11 backend on Wayland when NVIDIA GPU is detected.
+// WebKitGTK on Wayland with NVIDIA triggers protocol errors with translucent windows.
+func forceX11OnWaylandNVIDIA() {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	if !strings.Contains(os.Getenv("GDK_BACKEND"), "wayland") {
+		return
+	}
+	if os.Getenv("XDG_SESSION_TYPE") != "wayland" {
+		return
+	}
+	if os.Getenv("__GLX_VENDOR_LIBRARY_NAME") == "nvidia" || os.Getenv("NVD_BACKEND") == "direct" {
+		os.Setenv("GDK_BACKEND", "x11")
+	}
+}
+
 func main() {
+	forceX11OnWaylandNVIDIA()
 	app := NewApp()
 
 	sessionBind := NewSessionBind(app.session)
@@ -61,6 +82,9 @@ func main() {
 		},
 		Linux: &linux.Options{
 			WindowIsTranslucent: true,
+			// NVIDIA's EGL/GBM path fails to create DMA buffers on X11/Wayland,
+			// leaving the webview blank (wails #2977). Force software rendering.
+			WebviewGpuPolicy: linux.WebviewGpuPolicyNever,
 		},
 		AssetServer: &assetserver.Options{
 			Assets: assets,
