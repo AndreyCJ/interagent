@@ -215,8 +215,6 @@ The key in `.env` has been seen by the session; consider rotating it.
   provider works via env vars / agent settings (added later).
 - **Mic behavior:** mic transcription stays history-only (`user` role); only system audio (interviewer)
   auto-triggers LLM answers (ADR-007 cancel-on-new-input). Do NOT change.
-- **No new Go dependencies** unless strictly necessary.
-- **ADRs kept as-is** — no folding into AGENTS.md, no decisions.md.
 
 ## 7. De-slop (docs) — done in this session
 
