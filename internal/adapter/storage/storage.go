@@ -4,20 +4,24 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	_ "modernc.org/sqlite"
 
 	"interagent/internal/port"
 )
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db    *sql.DB
+	crypt port.Crypto
+}
 
-func New(dsn string) (*Store, error) {
+func New(dsn string, crypt port.Crypto) (*Store, error) {
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, crypt: crypt}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -61,7 +65,60 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+	if err := s.addSettingsColumns(); err != nil {
+		return err
+	}
+	return s.migrateDefaultAgent()
+}
+
+func (s *Store) addSettingsColumns() error {
+	rows, err := s.db.Query(`PRAGMA table_info(settings)`)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	rows.Close()
+	for _, ddl := range []string{
+		"stt_model TEXT NOT NULL DEFAULT 'base'",
+		"stt_language TEXT NOT NULL DEFAULT 'auto'",
+	} {
+		col := ddl[:strings.Index(ddl, " ")]
+		if have[col] {
+			continue
+		}
+		if _, err := s.db.Exec(`ALTER TABLE settings ADD COLUMN ` + ddl); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (s *Store) migrateDefaultAgent() error {
+	_, _ = s.db.Exec(`DELETE FROM agents WHERE id = 'default-local'`)
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM agents WHERE id = 'default-cloud'`).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO agents (id, name, provider, model, base_url, api_key, system_prompt, temperature)
+		 VALUES ('default-cloud', 'Cloud (OpenAI-compatible)', 'openai-compatible', 'deepseek-chat', 'https://api.deepseek.com', '',
+		         'You are a subtle interview hint assistant. Answer concisely. Answer in the same language as the question.', 0.7)`,
+	)
+	return err
 }
 
 func (s *Store) seed() error {
@@ -69,21 +126,34 @@ func (s *Store) seed() error {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM settings`).Scan(&count); err != nil {
 		return err
 	}
-	if count > 0 {
-		return nil
+	if count == 0 {
+		shortcuts := []port.Shortcut{
+			{ID: "overlay_toggle", Label: "Show/Hide Overlay", Keys: []string{"cmd", "shift", "i"}, Enabled: true},
+			{ID: "overlay_mode", Label: "Toggle click-through", Keys: []string{"cmd", "shift", "space"}, Enabled: true},
+		}
+		shortcutsJSON, err := json.Marshal(shortcuts)
+		if err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(
+			`INSERT INTO settings (id, theme, language, auto_start_listening, shortcuts, stt_model, stt_language)
+			 VALUES (1, 'transparent', 'en', 0, ?, 'base', 'auto')`,
+			shortcutsJSON,
+		); err != nil {
+			return err
+		}
 	}
-	shortcuts := []port.Shortcut{
-		{ID: "overlay_toggle", Label: "Show/Hide Overlay", Keys: []string{"cmd", "shift", "i"}, Enabled: true},
-		{ID: "overlay_mode", Label: "Toggle click-through", Keys: []string{"cmd", "shift", "space"}, Enabled: true},
-	}
-	shortcutsJSON, err := json.Marshal(shortcuts)
-	if err != nil {
+	var agents int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM agents`).Scan(&agents); err != nil {
 		return err
 	}
-	_, err = s.db.Exec(
-		`INSERT INTO settings (id, theme, language, auto_start_listening, shortcuts)
-		 VALUES (1, 'transparent', 'en', 0, ?)`,
-		shortcutsJSON,
+	if agents > 0 {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO agents (id, name, provider, model, base_url, api_key, system_prompt, temperature)
+		 VALUES ('default-cloud', 'Cloud (OpenAI-compatible)', 'openai-compatible', 'deepseek-chat', 'https://api.deepseek.com', '',
+		         'You are a subtle interview hint assistant. Answer concisely. Answer in the same language as the question.', 0.7)`,
 	)
 	return err
 }
@@ -163,6 +233,14 @@ func (s *Store) GetAgents() ([]port.AgentConfig, error) {
 }
 
 func (s *Store) SaveAgent(cfg port.AgentConfig) error {
+	key := cfg.APIKey
+	if key != "" {
+		enc, err := s.crypt.Encrypt(key)
+		if err != nil {
+			return err
+		}
+		key = enc
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO agents (id, name, provider, model, base_url, api_key, system_prompt, temperature)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -170,7 +248,7 @@ func (s *Store) SaveAgent(cfg port.AgentConfig) error {
 		   name = excluded.name, provider = excluded.provider, model = excluded.model,
 		   base_url = excluded.base_url, api_key = excluded.api_key,
 		   system_prompt = excluded.system_prompt, temperature = excluded.temperature`,
-		cfg.ID, cfg.Name, cfg.Provider, cfg.Model, cfg.BaseURL, cfg.APIKey,
+		cfg.ID, cfg.Name, cfg.Provider, cfg.Model, cfg.BaseURL, key,
 		cfg.SystemPrompt, cfg.Temperature,
 	)
 	return err
@@ -190,8 +268,8 @@ func (s *Store) GetSettings() (port.AppSettings, error) {
 		autoStart int
 	)
 	err := s.db.QueryRow(
-		`SELECT theme, language, auto_start_listening, shortcuts FROM settings WHERE id = 1`,
-	).Scan(&out.Theme, &out.Language, &autoStart, &shortcuts)
+		`SELECT theme, language, auto_start_listening, shortcuts, stt_model, stt_language FROM settings WHERE id = 1`,
+	).Scan(&out.Theme, &out.Language, &autoStart, &shortcuts, &out.SttModel, &out.SttLanguage)
 	if err != nil {
 		return port.AppSettings{}, err
 	}
@@ -212,9 +290,9 @@ func (s *Store) SaveSettings(cfg port.AppSettings) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		`UPDATE settings SET theme = ?, language = ?, auto_start_listening = ?, shortcuts = ?
+		`UPDATE settings SET theme = ?, language = ?, auto_start_listening = ?, shortcuts = ?, stt_model = ?, stt_language = ?
 		 WHERE id = 1`,
-		cfg.Theme, cfg.Language, enabled, shortcuts,
+		cfg.Theme, cfg.Language, enabled, shortcuts, cfg.SttModel, cfg.SttLanguage,
 	)
 	return err
 }

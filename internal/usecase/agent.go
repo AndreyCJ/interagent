@@ -1,6 +1,8 @@
 package usecase
 
 import (
+	"errors"
+
 	"github.com/google/uuid"
 
 	"interagent/internal/port"
@@ -27,17 +29,24 @@ func (a *Agent) List() ([]port.AgentConfig, error) {
 }
 
 func (a *Agent) GetActive() (port.AgentConfig, error) {
-	if a.activeID == "" {
-		return port.AgentConfig{}, nil
+	if a.activeID != "" {
+		agents, err := a.store.GetAgents()
+		if err != nil {
+			return port.AgentConfig{}, err
+		}
+		for _, agent := range agents {
+			if agent.ID == a.activeID {
+				return agent, nil
+			}
+		}
 	}
+	// fallback: first stored agent (default) is active
 	agents, err := a.store.GetAgents()
 	if err != nil {
 		return port.AgentConfig{}, err
 	}
-	for _, agent := range agents {
-		if agent.ID == a.activeID {
-			return agent, nil
-		}
+	if len(agents) > 0 {
+		return agents[0], nil
 	}
 	return port.AgentConfig{}, nil
 }
@@ -50,6 +59,12 @@ func (a *Agent) SetActive(id string) error {
 func (a *Agent) Save(cfg port.AgentConfig) (port.AgentConfig, error) {
 	if cfg.ID == "" {
 		cfg.ID = uuid.NewString()
+	}
+	if cfg.Provider != "local" && cfg.Provider != "openai-compatible" {
+		return port.AgentConfig{}, errors.New("invalid provider: " + cfg.Provider)
+	}
+	if cfg.Model == "" {
+		return port.AgentConfig{}, errors.New("empty model")
 	}
 	if err := a.store.SaveAgent(cfg); err != nil {
 		return port.AgentConfig{}, err

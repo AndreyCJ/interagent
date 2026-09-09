@@ -12,6 +12,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
@@ -30,6 +32,69 @@ jobs:
         with:
           go-version: "1.25"
 
+      - name: Build whisper.cpp libs
+        run: ./scripts/build-whisper.sh
+
+      - name: Download CI whisper model
+        run: |
+          mkdir -p "$HOME/.cache/interagent-test"
+          curl -L --fail https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin -o "$HOME/.cache/interagent-test/ggml-tiny.bin"
+          curl -L --fail https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin -o "$HOME/.cache/interagent-test/ggml-silero-v6.2.0.bin"
+          echo "INTERAGENT_WHISPER_MODEL=$HOME/.cache/interagent-test/ggml-tiny.bin" >> "$GITHUB_ENV"
+          echo "INTERAGENT_VAD_MODEL=$HOME/.cache/interagent-test/ggml-silero-v6.2.0.bin" >> "$GITHUB_ENV"
+
+      - name: Check formatting
+        run: |
+          go fmt ./...
+          git diff --exit-code -- '*.go'
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run Go tests
+        run: go test ./...
+
+  go-linux:
+    name: Go tests (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install audio dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpulse-dev libpipewire-0.3-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Build frontend assets (required by go:embed)
+        run: |
+          pnpm install
+          pnpm --dir frontend build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build whisper.cpp libs
+        run: ./scripts/build-whisper.sh
+
+      - name: Download CI whisper model
+        run: |
+          mkdir -p "$HOME/.cache/interagent-test"
+          curl -L --fail https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin -o "$HOME/.cache/interagent-test/ggml-tiny.bin"
+          curl -L --fail https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin -o "$HOME/.cache/interagent-test/ggml-silero-v6.2.0.bin"
+          echo "INTERAGENT_WHISPER_MODEL=$HOME/.cache/interagent-test/ggml-tiny.bin" >> "$GITHUB_ENV"
+          echo "INTERAGENT_VAD_MODEL=$HOME/.cache/interagent-test/ggml-silero-v6.2.0.bin" >> "$GITHUB_ENV"
+
       - name: Check formatting
         run: |
           go fmt ./...
@@ -42,8 +107,8 @@ jobs:
         run: go test ./...
 
   frontend:
-    name: Frontend tests
-    runs-on: macos-latest
+    name: Frontend checks
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
@@ -77,8 +142,67 @@ jobs:
       - name: Build production bundle
         run: pnpm build
 
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install chromium
+  e2e:
+    name: E2E smoke test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      - name: Run e2e tests
-        run: pnpm exec playwright test
+      - name: Install Linux dev dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libpulse-dev libpipewire-0.3-dev xvfb
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Build frontend assets (required by go:embed)
+        run: pnpm --dir frontend build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install wails CLI
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Build whisper.cpp libs
+        run: ./scripts/build-whisper.sh
+
+      - name: Warm Go build cache
+        run: go build -tags "webkit2_41" ./...
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            pnpm exec playwright install --with-deps chromium
+          else
+            pnpm exec playwright install chromium
+          fi
+
+      - name: Run e2e smoke test
+        working-directory: frontend
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a pnpm exec playwright test
+          else
+            pnpm exec playwright test
+          fi

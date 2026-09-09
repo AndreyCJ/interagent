@@ -1,7 +1,7 @@
 # ADR-007: Audio pipeline — sources, phrase end detection, generation cancellation
 
 **Date:** 2026-08-01
-**Status:** Proposed
+**Status:** Accepted
 **Related documents:** 01-tz.md §2.1/§3/§8 (stage 3), 02-nfr.md (NFR-01, NFR-02), 04-events.md, 05-architecture.md §3, ADR-001, ADR-005, ADR-008
 
 ---
@@ -60,7 +60,7 @@ The whisper.cpp Go binding (ADR-005) can detect phrase ends in stream mode (`whi
 **Pros:**
 
 - Already in the chosen STT (ADR-005), no extra libraries.
-- Partial text → `transcription:partial` event (already covered by 04-events).
+- Final phrase → `transcription:done` event (covered by 04-events). Final-only output since 2026-08-07: no partial events — the stream processes at phrase ends (silence gate).
 
 **Cons:**
 
@@ -112,14 +112,14 @@ Owner's decision (2026-08-01). When a new phrase completes during generation: `L
 
 - **System sound** (`interviewer`): capture via **ScreenCaptureKit**, source selection — the conference app/system audio. Requires screen recording permission (ADR-008).
 - **Microphone** (`user`): native macOS API.
-- **Phrase end:** endpoint detection in whisper.cpp (stream). Partial text is sent via `transcription:partial`, final — via `transcription:done` → pipeline start.
+- **Phrase end:** endpoint detection in whisper.cpp (stream). The stream processes only at phrase ends (RMS silence gate + cadence backstop); final text goes via `transcription:done` → pipeline start. No partial events.
 - **New input during generation:** **Cancel** the current generation (`LLM.Cancel()` → `llm:cancelled` event) and start generation on the fresh input.
 
 ### Audio pipeline (stage 3)
 
 ```
 AudioInput (SCK / mic) → STT whisper.cpp (endpoint detection)
-    → transcription:partial (throttled) / transcription:done
+    → transcription:done
     → SendText(text, role) → LLM (cancel on new input) → llm:response
 ```
 
@@ -135,3 +135,9 @@ AudioInput (SCK / mic) → STT whisper.cpp (endpoint detection)
 - Capturing system sound requires the "Screen Recording" permission — user denial handling in ADR-008.
 - Cancelling generation loses the previous request's work — acceptable for the interview UX.
 - Endpoint detection can make mistakes — recognition errors are handled per NFR-06 (the user sees a message and can retry).
+
+---
+
+**Linux note:** system sound is captured via the XDG ScreenCast portal audio stream (the portal
+picker is the consent), not the default-sink monitor; the mic uses the pulse default source.
+Otherwise the behaviour is unchanged: system sound → auto-answer, mic → history. Details: ADR-013.

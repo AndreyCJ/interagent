@@ -10,6 +10,6 @@ defineEmits<{
 
 <template>
   <button class="mic-button" :class="{ active: listening }" @click="$emit('toggle')">
-    {{ listening ? 'Stop' : 'Mic' }}
+    {{ listening ? 'Stop' : 'Listen' }}
   </button>
 </template>

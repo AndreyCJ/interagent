@@ -6,3 +6,8 @@ frontend/test-results
 frontend/playwright-report
 docs/superpowers
 .DS_Store
+.env
+.env.*
+!.env.example
+third_party/whisper.cpp/build/
+third_party/whisper.cpp/dist/

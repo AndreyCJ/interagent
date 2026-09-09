@@ -3,4 +3,6 @@
 
 export function CancelResponse():Promise<void>;
 
+export function GetOllamaModels():Promise<Array<string>>;
+
 export function SendText(arg1:string):Promise<void>;

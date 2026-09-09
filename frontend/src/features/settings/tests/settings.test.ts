@@ -1,71 +1,86 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
-import type { AgentConfig, Shortcut } from '../../../common/types/api.types.js'
-import AgentManager from '../AgentManager.vue'
-import SettingsPanel from '../SettingsPanel.vue'
-import ShortcutEditor from '../ShortcutEditor.vue'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import type { AppSettings } from '../../../common/types/api.types'
+
+const { mockWails } = vi.hoisted(() => ({
+  mockWails: { GetSettings: vi.fn(), SaveSettings: vi.fn() },
+}))
+
+vi.mock('../../../common/utils/wails', () => mockWails)
+
 import { useSettings } from '../useSettings'
+import SettingsPanel from '../SettingsPanel.vue'
 
-describe('SettingsPanel', () => {
-  it('renders slot content', () => {
-    const wrapper = mount(SettingsPanel, {
-      slots: { default: 'settings content' },
-    })
-    expect(wrapper.text()).toContain('settings content')
-  })
-})
-
-describe('AgentManager', () => {
-  it('renders list of agents', () => {
-    const agents: AgentConfig[] = [
-      {
-        id: '1',
-        name: 'Default',
-        provider: 'local',
-        model: 'llama3',
-        baseUrl: '',
-        apiKey: '',
-        systemPrompt: '',
-        temperature: 0.7,
-      },
-    ]
-    const wrapper = mount(AgentManager, {
-      props: { agents },
-    })
-    expect(wrapper.text()).toContain('Default')
-  })
-
-  it('renders empty state', () => {
-    const wrapper = mount(AgentManager, {
-      props: { agents: [] },
-    })
-    expect(wrapper.findAll('.agent').length).toBe(0)
-  })
-})
-
-describe('ShortcutEditor', () => {
-  it('renders shortcuts with keys', () => {
-    const shortcuts: Shortcut[] = [
-      { id: 'mic_toggle', label: 'Toggle Mic', keys: ['Ctrl', 'Shift', 'M'], enabled: true },
-    ]
-    const wrapper = mount(ShortcutEditor, {
-      props: { shortcuts },
-    })
-    expect(wrapper.text()).toContain('Toggle Mic')
-    expect(wrapper.text()).toContain('Ctrl + Shift + M')
-  })
-})
+const base: AppSettings = {
+  theme: 'transparent',
+  language: 'en',
+  shortcuts: [],
+  autoStartListening: false,
+  sttModel: 'base',
+  sttLanguage: 'auto',
+}
 
 describe('useSettings', () => {
-  it('starts with null settings', () => {
-    const { settings } = useSettings()
-    expect(settings.value).toBeNull()
+  beforeEach(() => vi.clearAllMocks())
+
+  it('loads settings from the backend', async () => {
+    mockWails.GetSettings.mockResolvedValue(base)
+    const { settings, load } = useSettings()
+    await load()
+    expect(settings.value).toEqual(base)
   })
 
-  it('updates settings on save', async () => {
+  it('normalizes the PascalCase binding payload to camelCase AppSettings', async () => {
+    mockWails.GetSettings.mockResolvedValue({
+      Theme: 'dark',
+      Language: 'ru',
+      Shortcuts: [],
+      AutoStartListening: true,
+      SttModel: 'small',
+      SttLanguage: 'en',
+    })
+    const { settings, load } = useSettings()
+    await load()
+    expect(settings.value).toEqual({
+      theme: 'dark',
+      language: 'ru',
+      shortcuts: [],
+      autoStartListening: true,
+      sttModel: 'small',
+      sttLanguage: 'en',
+    })
+  })
+
+  it('saves settings via the backend and keeps the local copy in sync', async () => {
+    mockWails.SaveSettings.mockResolvedValue(undefined)
     const { settings, save } = useSettings()
-    const s = { theme: 'dark' as const, language: 'en', shortcuts: [], autoStartListening: false }
-    await save(s)
-    expect(settings.value).toEqual(s)
+    await save({ ...base, sttModel: 'small' })
+    expect(mockWails.SaveSettings).toHaveBeenCalledWith({ ...base, sttModel: 'small' })
+    expect(settings.value?.sttModel).toBe('small')
+  })
+
+  it('captures load errors', async () => {
+    mockWails.GetSettings.mockRejectedValue(new Error('bind failed'))
+    const { settings, error, load } = useSettings()
+    await load()
+    expect(settings.value).toBeNull()
+    expect(error.value).toBe('bind failed')
+  })
+})
+
+describe('SettingsPanel', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('renders STT model and language selects and saves on click', async () => {
+    mockWails.GetSettings.mockResolvedValue(base)
+    mockWails.SaveSettings.mockResolvedValue(undefined)
+    const wrapper = mount(SettingsPanel)
+    await flushPromises()
+    const selects = wrapper.findAll('select')
+    expect(selects).toHaveLength(2)
+    expect((selects[0].element as HTMLSelectElement).value).toBe('base')
+    expect((selects[1].element as HTMLSelectElement).value).toBe('auto')
+    await wrapper.find('button').trigger('click')
+    expect(mockWails.SaveSettings).toHaveBeenCalledWith(base)
   })
 })

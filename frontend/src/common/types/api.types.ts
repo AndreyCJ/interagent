@@ -26,6 +26,8 @@ export interface AppSettings {
   language: string
   shortcuts: Shortcut[]
   autoStartListening: boolean
+  sttModel: string
+  sttLanguage: string
 }
 
 export interface Shortcut {
@@ -44,3 +46,8 @@ export interface AudioDevice {
 export type OverlayMode = 'click-through' | 'interactive'
 
 export type Permission = 'microphone' | 'screen-recording' | 'accessibility'
+
+export interface STTModelStatus {
+  installed: boolean
+  path: string
+}

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"testing"
 
 	"interagent/internal/port"
@@ -8,9 +9,16 @@ import (
 
 const testDSN = "file::memory:?cache=shared"
 
+type testCrypto struct{}
+
+func (testCrypto) Encrypt(plaintext string) (string, error) { return "enc:" + plaintext, nil }
+func (testCrypto) Decrypt(ciphertext string) (string, error) {
+	return "dec:" + ciphertext, nil
+}
+
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := New(testDSN)
+	s, err := New(testDSN, testCrypto{})
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
@@ -133,6 +141,12 @@ func TestStorage_GetSettings_ReturnsSeededDefaults(t *testing.T) {
 	if sc, ok := ids["overlay_mode"]; !ok || !sc.Enabled {
 		t.Errorf("default shortcut overlay_mode should exist and be enabled: %+v", sc)
 	}
+	if settings.SttModel != "base" {
+		t.Errorf("SttModel = %q, want base", settings.SttModel)
+	}
+	if settings.SttLanguage != "auto" {
+		t.Errorf("SttLanguage = %q, want auto", settings.SttLanguage)
+	}
 }
 
 func TestStorage_SaveAndGetSettings(t *testing.T) {
@@ -141,6 +155,8 @@ func TestStorage_SaveAndGetSettings(t *testing.T) {
 	custom := port.AppSettings{
 		Theme:              "dark",
 		Language:           "ru",
+		SttModel:           "small",
+		SttLanguage:        "ru",
 		AutoStartListening: true,
 		Shortcuts: []port.Shortcut{
 			{ID: "overlay_toggle", Label: "Show/Hide", Keys: []string{"cmd", "shift", "h"}, Enabled: true},
@@ -160,6 +176,41 @@ func TestStorage_SaveAndGetSettings(t *testing.T) {
 	if len(got.Shortcuts) != 1 || got.Shortcuts[0].ID != "overlay_toggle" {
 		t.Errorf("shortcuts mismatch: %+v", got.Shortcuts)
 	}
+	if got.SttModel != "small" || got.SttLanguage != "ru" {
+		t.Errorf("STT settings = (%q, %q), want (small, ru)", got.SttModel, got.SttLanguage)
+	}
+}
+
+func TestStorage_Migrate_AddsSTTColumns(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:mem-migrate?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE settings (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		theme TEXT NOT NULL,
+		language TEXT NOT NULL,
+		auto_start_listening INTEGER NOT NULL,
+		shortcuts TEXT NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO settings (id, theme, language, auto_start_listening, shortcuts)
+		VALUES (1, 'transparent', 'en', 0, '[]')`); err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{db: db, crypt: testCrypto{}}
+	if err := s.migrate(); err != nil {
+		t.Fatalf("migrate() error: %v", err)
+	}
+	var model, lang string
+	if err := db.QueryRow(`SELECT stt_model, stt_language FROM settings WHERE id = 1`).Scan(&model, &lang); err != nil {
+		t.Fatalf("stt columns missing after migrate: %v", err)
+	}
+	if model != "base" || lang != "auto" {
+		t.Errorf("defaults after migrate = (%q, %q), want (base, auto)", model, lang)
+	}
 }
 
 func TestStorage_Agents_CRUD(t *testing.T) {
@@ -171,7 +222,7 @@ func TestStorage_Agents_CRUD(t *testing.T) {
 		Provider:     "local",
 		Model:        "model-3b",
 		BaseURL:      "",
-		APIKey:       "",
+		APIKey:       "sk-secret",
 		SystemPrompt: "You help",
 		Temperature:  0.3,
 	}
@@ -179,15 +230,31 @@ func TestStorage_Agents_CRUD(t *testing.T) {
 		t.Fatalf("SaveAgent() returned error: %v", err)
 	}
 
+	var storedKey string
+	err := s.db.QueryRow(`SELECT api_key FROM agents WHERE id = 'a1'`).Scan(&storedKey)
+	if err != nil {
+		t.Fatalf("read stored key: %v", err)
+	}
+	if storedKey != "enc:sk-secret" {
+		t.Errorf("stored api_key = %q, want enc:sk-secret (encrypted)", storedKey)
+	}
+
 	agents, err := s.GetAgents()
 	if err != nil {
 		t.Fatalf("GetAgents() returned error: %v", err)
 	}
-	if len(agents) != 1 {
-		t.Fatalf("agents count = %d, want 1", len(agents))
+	var found *port.AgentConfig
+	for i := range agents {
+		if agents[i].ID == "a1" {
+			found = &agents[i]
+			break
+		}
 	}
-	if agents[0].ID != "a1" || agents[0].Model != "model-3b" {
-		t.Errorf("agent mismatch: %+v", agents[0])
+	if found == nil {
+		t.Fatalf("agent a1 not found in %d agents", len(agents))
+	}
+	if found.Model != "model-3b" {
+		t.Errorf("agent mismatch: %+v", *found)
 	}
 
 	if err := s.DeleteAgent("a1"); err != nil {
@@ -197,7 +264,71 @@ func TestStorage_Agents_CRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAgents() returned error: %v", err)
 	}
-	if len(agents) != 0 {
-		t.Errorf("agents count after delete = %d, want 0", len(agents))
+	if len(agents) != 1 {
+		t.Errorf("agents count after delete = %d, want 1", len(agents))
+	}
+}
+
+func TestStorage_Seed_CreatesDefaultCloudAgent(t *testing.T) {
+	s := newTestStore(t)
+	agents, err := s.GetAgents()
+	if err != nil {
+		t.Fatalf("GetAgents() returned error: %v", err)
+	}
+	if len(agents) == 0 {
+		t.Fatal("expected a seeded default cloud agent")
+	}
+	if agents[0].Provider != "openai-compatible" || agents[0].Model == "" {
+		t.Errorf("default agent mismatch: %+v", agents[0])
+	}
+}
+
+func TestStorage_Seed_RepairsMissingDefaultAgent(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.DeleteAgent("default-cloud"); err != nil {
+		t.Fatalf("DeleteAgent() returned error: %v", err)
+	}
+	if err := s.seed(); err != nil {
+		t.Fatalf("seed() returned error: %v", err)
+	}
+	agents, err := s.GetAgents()
+	if err != nil {
+		t.Fatalf("GetAgents() returned error: %v", err)
+	}
+	for _, a := range agents {
+		if a.ID == "default-cloud" {
+			return
+		}
+	}
+	t.Fatal("seed() should re-insert the default cloud agent when the agents table is empty")
+}
+
+func TestStorage_Migrate_ReplacesDefaultLocalWithCloud(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.db.Exec(`INSERT INTO agents (id, name, provider, model, base_url, api_key, system_prompt, temperature)
+		VALUES ('default-local', 'Local (Ollama)', 'local', 'qwen3:8b', 'http://localhost:11434', '', '', 0.7)`)
+	if err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	if err := s.migrateDefaultAgent(); err != nil {
+		t.Fatalf("migrateDefaultAgent() error: %v", err)
+	}
+	agents, err := s.GetAgents()
+	if err != nil {
+		t.Fatalf("GetAgents() error: %v", err)
+	}
+	for _, a := range agents {
+		if a.ID == "default-local" {
+			t.Error("default-local should have been removed")
+		}
+	}
+	found := false
+	for _, a := range agents {
+		if a.ID == "default-cloud" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("default-cloud should exist after migration")
 	}
 }

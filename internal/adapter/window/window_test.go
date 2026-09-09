@@ -6,13 +6,13 @@ import (
 	"interagent/internal/port"
 )
 
-func TestNew_DefaultsToClickThrough(t *testing.T) {
+func TestNew_DefaultsToInteractive(t *testing.T) {
 	mode, err := New().GetMode()
 	if err != nil {
 		t.Fatalf("GetMode() error: %v", err)
 	}
-	if mode != port.OverlayModeClickThrough {
-		t.Errorf("mode = %q, want %q", mode, port.OverlayModeClickThrough)
+	if mode != port.OverlayModeInteractive {
+		t.Errorf("mode = %q, want %q", mode, port.OverlayModeInteractive)
 	}
 }
 
@@ -37,7 +37,7 @@ func TestShowHideToggle_NilCtx_NoPanicNoStateChange(t *testing.T) {
 		t.Error("visible state must not change without a Wails context")
 	}
 	mode, _ := o.GetMode()
-	if mode != port.OverlayModeClickThrough {
+	if mode != port.OverlayModeInteractive {
 		t.Errorf("mode changed unexpectedly: %q", mode)
 	}
 }

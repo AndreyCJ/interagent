@@ -6,8 +6,28 @@ export function Cancel() {
   return window['go']['main']['App']['Cancel']();
 }
 
+export function DownloadSTTModel() {
+  return window['go']['main']['App']['DownloadSTTModel']();
+}
+
+export function GetAudioDevices() {
+  return window['go']['main']['App']['GetAudioDevices']();
+}
+
+export function GetOllamaModels() {
+  return window['go']['main']['App']['GetOllamaModels']();
+}
+
+export function GetSTTModelStatus() {
+  return window['go']['main']['App']['GetSTTModelStatus']();
+}
+
 export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
+}
+
+export function IsListening() {
+  return window['go']['main']['App']['IsListening']();
 }
 
 export function Quit() {
@@ -16,4 +36,16 @@ export function Quit() {
 
 export function SendText(arg1) {
   return window['go']['main']['App']['SendText'](arg1);
+}
+
+export function SetAudioDevice(arg1) {
+  return window['go']['main']['App']['SetAudioDevice'](arg1);
+}
+
+export function StartListening() {
+  return window['go']['main']['App']['StartListening']();
+}
+
+export function StopListening() {
+  return window['go']['main']['App']['StopListening']();
 }

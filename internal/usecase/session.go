@@ -31,6 +31,17 @@ func (s *Session) Create() (port.Session, error) {
 	return session, nil
 }
 
+// EnsureSession creates a session if none is current. Called once at app
+// startup so GetCurrent/AppendMessage never fail with "no session"
+// (Session.currentID is in-memory and empty after launch).
+func (s *Session) EnsureSession() error {
+	if s.currentID != "" {
+		return nil
+	}
+	_, err := s.Create()
+	return err
+}
+
 func (s *Session) Get(id string) (port.Session, error) {
 	return s.store.GetSession(id)
 }

@@ -20,7 +20,7 @@ type Overlay struct {
 }
 
 func New() *Overlay {
-	return &Overlay{mode: port.OverlayModeClickThrough, visible: true}
+	return &Overlay{mode: port.OverlayModeInteractive, visible: true}
 }
 
 // SetContext must be called once the Wails context is available (OnStartup).

@@ -49,6 +49,8 @@ export namespace port {
 	    Language: string;
 	    Shortcuts: Shortcut[];
 	    AutoStartListening: boolean;
+	    SttModel: string;
+	    SttLanguage: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -60,6 +62,8 @@ export namespace port {
 	        this.Language = source["Language"];
 	        this.Shortcuts = this.convertValues(source["Shortcuts"], Shortcut);
 	        this.AutoStartListening = source["AutoStartListening"];
+	        this.SttModel = source["SttModel"];
+	        this.SttLanguage = source["SttLanguage"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -110,6 +114,20 @@ export namespace port {
 	        this.Role = source["Role"];
 	        this.Text = source["Text"];
 	        this.Timestamp = source["Timestamp"];
+	    }
+	}
+	export class STTModelStatus {
+	    Installed: boolean;
+	    Path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new STTModelStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Installed = source["Installed"];
+	        this.Path = source["Path"];
 	    }
 	}
 	export class Session {

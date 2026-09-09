@@ -6,12 +6,25 @@ export interface ChatMessage {
   role: string
   text: string
   timestamp?: number
+  streaming?: boolean
 }
 
 export function useChat() {
   const messages = ref<ChatMessage[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+
+  function updateStreaming(text: string, finalize: boolean): void {
+    const last = messages.value[messages.value.length - 1]
+    if (last && last.role === 'assistant' && last.streaming) {
+      last.text = text
+      if (finalize) last.streaming = false
+    } else {
+      const m: ChatMessage = { role: 'assistant', text }
+      if (!finalize) m.streaming = true
+      messages.value.push(m)
+    }
+  }
 
   async function load(): Promise<void> {
     try {
@@ -33,6 +46,8 @@ export function useChat() {
   async function send(text: string): Promise<void> {
     const trimmed = text.trim()
     if (!trimmed) return
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && last.streaming) last.streaming = false
     messages.value.push({ role: 'user', text: trimmed })
     try {
       await SendText(trimmed)
@@ -46,22 +61,44 @@ export function useChat() {
     error.value = null
   })
 
+  onEvent('llm:partial', payload => {
+    const p = payload as { text?: string }
+    if (p?.text) updateStreaming(p.text, false)
+  })
+
   onEvent('llm:response', payload => {
     const p = payload as { text?: string }
     if (p?.text) {
-      messages.value.push({ role: 'assistant', text: p.text })
+      updateStreaming(p.text, true)
+    } else {
+      const last = messages.value[messages.value.length - 1]
+      if (last?.streaming) last.streaming = false
     }
     loading.value = false
   })
 
   onEvent('llm:error', payload => {
     const p = payload as { error?: string }
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && last.streaming) last.streaming = false
     error.value = p?.error ?? 'LLM error'
     loading.value = false
   })
 
   onEvent('llm:cancelled', () => {
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && last.streaming) last.streaming = false
     loading.value = false
+  })
+
+  onEvent('transcription:done', payload => {
+    const p = payload as { text?: string; source?: string }
+    if (!p?.text) return
+    if (p.source === 'mic') {
+      messages.value.push({ role: 'user', text: p.text })
+    } else if (p.source === 'system') {
+      messages.value.push({ role: 'interviewer', text: p.text })
+    }
   })
 
   return { messages, loading, error, load, send }

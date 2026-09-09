@@ -103,4 +103,96 @@ describe('useChat', () => {
     await send('hello')
     expect(error.value).toBe('bind failed')
   })
+
+  it('streams llm:partial into an assistant message in place', () => {
+    const { messages } = useChat()
+    fire('llm:started', {})
+    fire('llm:partial', { text: 'Hel' })
+    fire('llm:partial', { text: 'Hello' })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('assistant')
+    expect(messages.value[0].text).toBe('Hello')
+    expect(messages.value[0].streaming).toBe(true)
+  })
+
+  it('finalizes the streaming message on llm:response', () => {
+    const { messages, loading } = useChat()
+    fire('llm:started', {})
+    fire('llm:partial', { text: 'part' })
+    fire('llm:response', { text: 'full answer' })
+    expect(loading.value).toBe(false)
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].text).toBe('full answer')
+    expect(messages.value[0].streaming).toBe(false)
+  })
+
+  it('keeps the existing llm:response behavior when no partial arrived', () => {
+    const { messages } = useChat()
+    fire('llm:started', {})
+    fire('llm:response', { text: 'direct' })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('assistant')
+    expect(messages.value[0].streaming).toBeUndefined()
+  })
+
+  it('clears the streaming flag on the last assistant message on llm:error', () => {
+    const { messages } = useChat()
+    fire('llm:started', {})
+    fire('llm:partial', { text: 'partial' })
+    fire('llm:error', { error: 'network timeout' })
+    expect(messages.value[messages.value.length - 1].role).toBe('assistant')
+    expect(messages.value[messages.value.length - 1].streaming).toBe(false)
+  })
+
+  it('clears the streaming flag on the last assistant message on llm:cancelled', () => {
+    const { messages } = useChat()
+    fire('llm:started', {})
+    fire('llm:partial', { text: 'partial' })
+    fire('llm:cancelled', {})
+    expect(messages.value[messages.value.length - 1].role).toBe('assistant')
+    expect(messages.value[messages.value.length - 1].streaming).toBe(false)
+  })
+
+  it('clears a stale streaming flag before sending a new user message', async () => {
+    mockWails.SendText.mockResolvedValue(undefined)
+    const { messages, send } = useChat()
+    fire('llm:started', {})
+    fire('llm:partial', { text: 'stale' })
+    await send('next question')
+    const assistant = messages.value[messages.value.length - 2]
+    expect(assistant.role).toBe('assistant')
+    expect(assistant.streaming).toBe(false)
+  })
+
+  it('appends mic transcription as a user message on transcription:done', () => {
+    const { messages } = useChat()
+    fire('transcription:done', {
+      text: 'Hello world',
+      confidence: 0.9,
+      language: 'en',
+      source: 'mic',
+    })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('user')
+    expect(messages.value[0].text).toBe('Hello world')
+  })
+
+  it('appends system transcription as an interviewer message on transcription:done', () => {
+    const { messages } = useChat()
+    fire('transcription:done', {
+      text: 'What is your approach?',
+      confidence: 0.92,
+      language: 'en',
+      source: 'system',
+    })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('interviewer')
+    expect(messages.value[0].text).toBe('What is your approach?')
+  })
+
+  it('ignores transcription:done without text', () => {
+    const { messages } = useChat()
+    fire('transcription:done', { text: '', source: 'system' })
+    expect(messages.value).toEqual([])
+  })
 })

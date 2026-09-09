@@ -46,8 +46,10 @@ func TestSettings_Save_PersistsChanges(t *testing.T) {
 	s := NewSettings(store)
 
 	updated := port.AppSettings{
-		Theme:    "light",
-		Language: "ru",
+		Theme:       "light",
+		Language:    "ru",
+		SttModel:    "base",
+		SttLanguage: "auto",
 	}
 
 	err := s.Save(updated)
@@ -61,6 +63,24 @@ func TestSettings_Save_PersistsChanges(t *testing.T) {
 	}
 	if got.Language != "ru" {
 		t.Errorf("expected language 'ru', got %q", got.Language)
+	}
+}
+
+func TestSettings_Save_RejectsInvalidSTTModel(t *testing.T) {
+	store := newMockSettingsStore()
+	s := NewSettings(store)
+	bad := port.AppSettings{Theme: "dark", SttModel: "huge", SttLanguage: "auto"}
+	if err := s.Save(bad); err == nil {
+		t.Fatal("Save() should reject unknown stt model")
+	}
+}
+
+func TestSettings_Save_RejectsInvalidSTTLanguage(t *testing.T) {
+	store := newMockSettingsStore()
+	s := NewSettings(store)
+	bad := port.AppSettings{Theme: "dark", SttModel: "base", SttLanguage: "fr"}
+	if err := s.Save(bad); err == nil {
+		t.Fatal("Save() should reject unknown stt language")
 	}
 }
 
