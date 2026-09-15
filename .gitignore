@@ -11,3 +11,4 @@ docs/superpowers
 !.env.example
 third_party/whisper.cpp/build/
 third_party/whisper.cpp/dist/
+.opencode/

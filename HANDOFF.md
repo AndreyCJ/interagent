@@ -53,7 +53,7 @@ Uncommitted work from prior sessions, committed here so it survives the machine 
   SCContentFilter, real pixel dimensions (1x1 audio-only config fails with SCError 1003 on macOS 26),
   `config.sampleRate/channelCount/queueDepth`, richer error strings, tear down half-open streams on failed start.
 - `internal/usecase/audiopipeline.go` + test — include `source` in `transcription:done` payload (already referenced the field).
-- `scripts/dev-audio.sh` — signed-app dev loop (wails build → codesign → open). See ADR-012.
+- `scripts/dev-macos.sh` — signed-app dev loop (wails build → codesign → open). See ADR-012.
 - `build/darwin/entitlements.plist`, `docs/adr/012-sc-content-filter-and-dev-signing.md`.
 - Small frontend/audio test + `useAudio.ts` tweak, `frontend/vite.config.ts`, regenerated wailsjs runtime, `AGENTS.md`/docs tweaks.
 
@@ -224,7 +224,7 @@ Docs mostly deleted; **code is the source of truth**:
   `05-architecture.md`, `06-bind-contracts.md`, and `docs/superpowers/` (gitignored scratch).
 - Kept: `docs/adr/` untouched; `AGENTS.md` rewritten (points contracts at `internal/port/*` and `bind_*.go`);
   `README.md` trimmed.
-- `scripts/dev-audio.sh` still references `docs/adr/012-...` — valid, ADRs are kept.
+- `scripts/dev-macos.sh` still references `docs/adr/012-...` — valid, ADRs are kept.
 
 ## 8. Future work (the plan this session was titled over)
 

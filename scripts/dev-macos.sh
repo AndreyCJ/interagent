@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds the macOS app bundle, signs it with a stable dev identity, and opens it.
+# Platform: macOS only. Builds the macOS app bundle, signs it with a stable dev
+# identity, and opens it.
 #
 # Why signing is required for dev:
 #  - ScreenCaptureKit on Sequoia/Tahoe rejects unsigned / ad-hoc binaries at
@@ -40,6 +41,7 @@ if [ -z "$IDENT" ]; then
 fi
 
 cd "$ROOT"
+source "$ROOT/scripts/whisper-env.sh"
 wails build
 
 codesign --force --deep --sign "$IDENT" \

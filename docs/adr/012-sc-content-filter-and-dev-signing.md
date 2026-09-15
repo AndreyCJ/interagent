@@ -56,12 +56,12 @@ Cons: one-time setup (Xcode + Apple ID sign-in); the dev loop must build+sign+op
 ## Decision
 
 - The capture filter uses `initWithDisplay:includingApplications:exceptingWindows:`.
-- Dev builds are signed via `scripts/dev-audio.sh` with an **Apple Development certificate** (hardened runtime + `build/darwin/entitlements.plist` with `com.apple.security.device.screen-capture` and `com.apple.security.device.audio-input` — under hardened runtime the mic is hard-denied by TCC without the audio-input entitlement, even when granted in System Settings); the script auto-picks the Apple Development identity and falls back to `$IA_DEV_SIGN_IDENTITY` / the self-signed cert. Release distribution requires a Developer ID certificate + notarization (planned separately, not part of this ADR).
+- Dev builds are signed via `scripts/dev-macos.sh` with an **Apple Development certificate** (hardened runtime + `build/darwin/entitlements.plist` with `com.apple.security.device.screen-capture` and `com.apple.security.device.audio-input` — under hardened runtime the mic is hard-denied by TCC without the audio-input entitlement, even when granted in System Settings); the script auto-picks the Apple Development identity and falls back to `$IA_DEV_SIGN_IDENTITY` / the self-signed cert. Release distribution requires a Developer ID certificate + notarization (planned separately, not part of this ADR).
 
 ## Trade-offs
 
 - Including all applications means the content filter is broader than strictly necessary, but it is built once at stream start and has no runtime cost.
 - A real-display-width stream config is heavier than a 1×1 "audio-only" config on paper, but the stream is still audio-only (no video output is added); the dimensions only exist so the daemon can create the internal session.
 - Dev signing does not cover distribution: release builds need Developer ID + notarization (and the same entitlement), which stays a separate pipeline concern.
-- `wails dev` (hot reload) cannot be used for audio testing on Tahoe because it launches the unsigned bare binary; audio work goes through `scripts/dev-audio.sh`.
+- `wails dev` (hot reload) cannot be used for audio testing on Tahoe because it launches the unsigned bare binary; audio work goes through `scripts/dev-macos.sh`.
 - The free Apple Development certificate chains to the Apple WWDR G3 intermediate; if that intermediate / "Apple Root CA - G3" anchor is missing from the keychain, `security find-identity -v` marks the identity not-valid (codesign still works, but TCC may not honor the grant). Install the WWDR G3 + root from Apple's certificate-authority page if a signed build is still rejected.

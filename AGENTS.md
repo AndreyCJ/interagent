@@ -19,8 +19,12 @@ Interagent — приложение-оверлей, которое в реаль
 1. **Тесты — before код.** Никакой реализации без зелёных тестов и ревью (TDD, Definition of Done).
 2. **STT — только локально** (whisper.cpp, ADR-001/005/011). **cgo — два замороженных исключения**
    (ADR-005 + amendment, ADR-013): whisper.cpp (STT) и Linux-аудио
-   (`internal/adapter/audio/capture_{pulse,pipewire}_linux.go`, libpulse-simple + PipeWire-мост;
-   портальный D-Bus-флоу — чистый Go, `internal/adapter/portal`); остальной код — чистый Go.
+   (`internal/adapter/audio/capture_pulse_linux.go`, libpulse-simple — mic default source и
+   системный звук через default-sink monitor); остальной код — чистый Go.
+   STT может оффлоажиться на GPU: `scripts/build-whisper.sh` включает `-DGGML_VULKAN=ON`
+   на Linux при наличии Vulkan-тулчейна (иначе — CPU), ADR-014. Модели: по умолчанию
+   `large-v3`; при отсутствии в `models/` сначала переиспользуется уже скачанная voxtype-модель
+   (`~/.local/share/voxtype/models`, сверка SHA-256 перед hardlink/copy), только иначе — download.
    LLM — облачный OpenAI-совместимый (адаптер `internal/adapter/llm/openai`, ADR-004); в dev ключ
    задаётся через `LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL` (env-оверрайд в `app.go`), в прод —
    через агента с зашифрованным apiKey (AES-256-GCM, мастер-ключ в Keychain).
@@ -36,6 +40,8 @@ Interagent — приложение-оверлей, которое в реаль
 ```
 pnpm install               # pnpm workspace (корень репо): все пакеты + git-хуки
 pnpm --dir frontend build  # go:embed требует frontend/src/app/dist (перед go-проверками)
+./scripts/build-whisper.sh # пересборка нативных libs whisper.cpp (после изменений в submodule)
+source scripts/whisper-env.sh   # CGO_CPPFLAGS/CGO_LDFLAGS/LIBRARY_PATH → third_party/whisper.cpp/dist
 go test ./...              # Go backend (stdlib testing)
 go vet ./...               # статический анализ
 go fmt ./...               # formatting
@@ -46,10 +52,10 @@ cd frontend && pnpm test
 cd frontend && pnpm exec playwright test   # e2e
 ```
 
-Сборка: `wails build`. Dev-запуск с облачным LLM: `LLM_API_KEY=... wails dev`.
+Сборка: `./scripts/build.sh -tags "webkit2_41"` (на macOS — без `-tags "webkit2_41"`, тег нужен только Linux'у). Dev-запуск с облачным LLM: `LLM_API_KEY=... ./scripts/dev.sh -tags "webkit2_41"`. Оба оборачивают `source scripts/whisper-env.sh` (CGO-окружение whisper.cpp); запускать `wails`/`go` напрямую — только после `source scripts/whisper-env.sh`.
 
 ## macOS: аудио-дев-цикл и подпись
 
 - ScreenCaptureKit (системный звук, скриншоты/OCR, ADR-012) на Sequoia/Tahoe отклоняет неподписанные / ad-hoc / self-signed бинарники (`SCError 1003`), а TCC-гранты привязаны к подписи кода.
-- Аудио-тест-цикл: `./scripts/dev-audio.sh` — собирает `.app`, подписывает стабильной identity (авто-выбор: `$IA_DEV_SIGN_IDENTITY` → `Apple Development:` → self-signed), открывает bundle. `wails dev` для аудио не подходит (запускает неподписанный bare-бинарник).
+- Аудио-тест-цикл: `./scripts/dev-macos.sh` — собирает `.app`, подписывает стабильной identity (авто-выбор: `$IA_DEV_SIGN_IDENTITY` → `Apple Development:` → self-signed), открывает bundle. `wails dev` для аудио не подходит (запускает неподписанный bare-бинарник).
 - Гранты Screen & System Audio Recording + Microphone выдаются один раз для `interagent.app` (bundle id `com.wails.interagent`) и держатся между пересборками только при стабильной подписи. Если после переподписи грант «слетел» — `tccutil reset ScreenCapture com.wails.interagent` (+ `Microphone`) и выдать заново.
