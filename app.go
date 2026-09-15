@@ -129,7 +129,7 @@ func NewApp() *App {
 	modelStore := modelsadapter.New(modelsDir)
 	modelsUC := usecase.NewModels(ev, modelStore)
 
-	sttModel, sttLanguage := "base", "auto"
+	sttModel, sttLanguage := "large-v3", "auto"
 	if s, err := settingsUC.Get(); err == nil {
 		if s.SttModel != "" {
 			sttModel = s.SttModel
@@ -189,6 +189,15 @@ func (a *App) GetVersion() string {
 
 func (a *App) Quit() {}
 
+// shutdown releases native resources on app exit. Without it the whisper models
+// (weights + Vulkan buffers) are reclaimed only by process teardown; Stop()
+// runs capture shutdown + Whisper_free for both pipelines, unloading the model
+// and its GPU allocations explicitly.
+func (a *App) shutdown(_ context.Context) {
+	_ = a.audioSystem.Stop()
+	_ = a.audioMic.Stop()
+}
+
 func (a *App) SendText(text string) error {
 	a.mu.Lock()
 	if a.generating {
@@ -230,9 +239,44 @@ func ensureListeningPermissions(p port.Permissions) error {
 	return errors.New("screen recording permission required for system sound")
 }
 
+// sttModels is the models surface StartListening needs: ensure the STT and VAD
+// artifacts are installed, downloading them synchronously when missing.
+type sttModels interface {
+	Ensure(model string) error
+}
+
+// sttModelKey maps the settings model name ("tiny", "base", "small",
+// "large-v3", "large-v3-turbo") to the model store key ("ggml-tiny", ...);
+// store keys pass through unchanged.
+func sttModelKey(model string) string {
+	switch model {
+	case "tiny", "base", "small", "large-v3", "large-v3-turbo":
+		return "ggml-" + model
+	}
+	return model
+}
+
+// ensureSTTModels makes sure the configured whisper model and the Silero VAD
+// are installed. Extracted (pure) so the required set and order are
+// unit-testable without a real store.
+func ensureSTTModels(m sttModels, sttModel string) error {
+	if sttModel == "" {
+		return errors.New("STT model is not configured")
+	}
+	for _, model := range []string{sttModelKey(sttModel), "silero-vad"} {
+		if err := m.Ensure(model); err != nil {
+			return fmt.Errorf("STT model %q is not ready: %w", model, err)
+		}
+	}
+	return nil
+}
+
 func (a *App) StartListening() error {
 	settings, err := a.settings.Get()
 	if err != nil {
+		return err
+	}
+	if err := ensureSTTModels(a.models, settings.SttModel); err != nil {
 		return err
 	}
 	if err := a.rebuildSTT(settings); err != nil {
@@ -241,6 +285,12 @@ func (a *App) StartListening() error {
 	if err := ensureListeningPermissions(&a.permissions); err != nil {
 		a.emitPermissionError(port.PermissionScreenCapture, err)
 		return err
+	}
+	// Load the whisper model synchronously so a missing/corrupt model returns
+	// a real error here instead of failing an async background goroutine after
+	// capture already started (silent dead STT).
+	if err := a.sttSystem.Preload(); err != nil {
+		return fmt.Errorf("stt model: %w", err)
 	}
 	return a.audioSystem.Start()
 }
@@ -265,15 +315,13 @@ func (a *App) emitPermissionError(perm port.Permission, err error) {
 	_ = a.events.Emit("app:error", permissionErrorPayload(perm, err))
 }
 
-// rebuildSTT recreates the system whisper adapter and pipeline when the STT
-// model or language changed since the last run. No-op when unchanged. Must be
-// called only while listening is stopped.
+// rebuildSTT creates a fresh system whisper adapter and pipeline. Rebuilding on
+// every StartListening (not just on setting changes) guarantees each listen
+// cycle owns an un-closed whisper instance: StopListening closes the STT via
+// pipeline.Stop, and a closed adapter can never stream again.
 func (a *App) rebuildSTT(settings port.AppSettings) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.lastSTTModel == settings.SttModel && a.lastSTTLanguage == settings.SttLanguage {
-		return nil
-	}
 	if err := a.sttSystem.Close(); err != nil {
 		return err
 	}
@@ -301,7 +349,15 @@ func (a *App) GetAudioDevices() ([]port.AudioDevice, error) { return a.captureMi
 func (a *App) SetAudioDevice(id string) error { return a.captureMic.SetDevice(id) }
 
 func (a *App) DownloadSTTModel() error {
-	if err := a.models.Download("ggml-base"); err != nil {
+	s, err := a.settings.Get()
+	if err != nil {
+		return err
+	}
+	model := s.SttModel
+	if model == "" {
+		model = "base"
+	}
+	if err := a.models.Download(sttModelKey(model)); err != nil {
 		return err
 	}
 	return a.models.Download("silero-vad")
@@ -309,6 +365,10 @@ func (a *App) DownloadSTTModel() error {
 
 func (a *App) GetSTTModelStatus() (port.STTModelStatus, error) {
 	return a.models.Status("ggml-base")
+}
+
+func (a *App) GetModelStatus(name string) (port.STTModelStatus, error) {
+	return a.models.Status(sttModelKey(name))
 }
 
 func (a *App) Cancel() error {

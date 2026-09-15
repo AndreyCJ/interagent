@@ -14,6 +14,10 @@ export function GetAudioDevices() {
   return window['go']['main']['App']['GetAudioDevices']();
 }
 
+export function GetModelStatus(arg1) {
+  return window['go']['main']['App']['GetModelStatus'](arg1);
+}
+
 export function GetOllamaModels() {
   return window['go']['main']['App']['GetOllamaModels']();
 }

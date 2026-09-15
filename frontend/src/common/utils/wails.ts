@@ -14,6 +14,12 @@ export {
   StopListening,
 } from '../../../wailsjs/go/main/AudioBind'
 
+export {
+  DownloadSTTModel,
+  GetModelStatus,
+  GetSTTModelStatus,
+} from '../../../wailsjs/go/main/ModelsBind'
+
 export { GetVersion, Quit } from '../../../wailsjs/go/main/App'
 
 export { CancelResponse, SendText } from '../../../wailsjs/go/main/LLMBind'

@@ -163,6 +163,77 @@ func TestModels_Download_AlreadyInstalled_EmitsDone(t *testing.T) {
 	}
 }
 
+func TestModels_Ensure_InstallsMissingModel(t *testing.T) {
+	events := newEventRecorder()
+	store := &mockModelStore{
+		installed: map[string]bool{},
+		progress:  []int64{50, 100},
+		total:     100,
+	}
+	m := NewModels(events, store)
+
+	if err := m.Ensure("ggml-base"); err != nil {
+		t.Fatalf("Ensure() error: %v", err)
+	}
+	if len(store.downloadCalls) != 1 || store.downloadCalls[0] != "ggml-base" {
+		t.Errorf("downloadCalls = %v, want [ggml-base]", store.downloadCalls)
+	}
+	if events.count("model:downloaded") != 1 {
+		t.Error("Ensure() must emit model:downloaded after install")
+	}
+	if events.count("app:error") != 0 {
+		t.Error("Ensure() is synchronous: caller surfaces errors, no app:error")
+	}
+}
+
+func TestModels_Ensure_AlreadyInstalled_NoDownload(t *testing.T) {
+	events := newEventRecorder()
+	store := &mockModelStore{installed: map[string]bool{"ggml-base": true}}
+	m := NewModels(events, store)
+
+	if err := m.Ensure("ggml-base"); err != nil {
+		t.Fatalf("Ensure() error: %v", err)
+	}
+	if len(store.downloadCalls) != 0 {
+		t.Errorf("downloadCalls = %v, want none", store.downloadCalls)
+	}
+	if events.count("model:download-progress") != 0 {
+		t.Error("installed model must not emit progress")
+	}
+	if events.count("model:downloaded") != 1 {
+		t.Error("installed model must still emit model:downloaded")
+	}
+}
+
+func TestModels_Ensure_ReturnsDownloadError(t *testing.T) {
+	events := newEventRecorder()
+	store := &mockModelStore{installed: map[string]bool{}, downloadErr: errors.New("network down")}
+	m := NewModels(events, store)
+
+	if err := m.Ensure("ggml-base"); err == nil {
+		t.Fatal("Ensure() must return the download error synchronously")
+	}
+	if events.count("model:downloaded") != 0 {
+		t.Error("failed Ensure() must not emit model:downloaded")
+	}
+	if events.count("app:error") != 0 {
+		t.Error("failed Ensure() must not emit app:error (caller surfaces it)")
+	}
+}
+
+func TestModels_Ensure_PropagatesStatusError(t *testing.T) {
+	events := newEventRecorder()
+	store := &mockModelStore{installed: map[string]bool{}, statusErr: errors.New("storage boom")}
+	m := NewModels(events, store)
+
+	if err := m.Ensure("ggml-base"); err == nil {
+		t.Fatal("Ensure() must propagate store.Status error")
+	}
+	if len(store.downloadCalls) != 0 {
+		t.Error("Ensure() must not download when status fails")
+	}
+}
+
 func TestModels_Download_Failure_EmitsAppError(t *testing.T) {
 	events := newEventRecorder()
 	store := &mockModelStore{

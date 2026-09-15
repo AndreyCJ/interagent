@@ -22,16 +22,18 @@ type spec struct {
 }
 
 type Store struct {
-	client *http.Client
-	dir    string
-	specs  map[string]spec
+	client     *http.Client
+	dir        string
+	voxtypeDir string
+	specs      map[string]spec
 }
 
 func New(dir string) *Store {
 	s := &Store{
-		client: http.DefaultClient,
-		dir:    dir,
-		specs:  map[string]spec{},
+		client:     http.DefaultClient,
+		dir:        dir,
+		voxtypeDir: voxtypeModelsDir(),
+		specs:      map[string]spec{},
 	}
 	for _, line := range strings.Split(strings.TrimSpace(checksumsFile), "\n") {
 		parts := strings.Fields(line)
@@ -62,6 +64,18 @@ func (s *Store) add(name, sha256 string) {
 			url:      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
 			sha256:   sha256,
 			fileName: "ggml-tiny.bin",
+		}
+	case "ggml-large-v3.bin":
+		s.specs["ggml-large-v3"] = spec{
+			url:      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
+			sha256:   sha256,
+			fileName: "ggml-large-v3.bin",
+		}
+	case "ggml-large-v3-turbo.bin":
+		s.specs["ggml-large-v3-turbo"] = spec{
+			url:      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+			sha256:   sha256,
+			fileName: "ggml-large-v3-turbo.bin",
 		}
 	case "ggml-small.bin":
 		s.specs["ggml-small"] = spec{
@@ -100,6 +114,10 @@ func (s *Store) Download(model string, onProgress func(received, total int64)) e
 	}
 	dest := filepath.Join(s.dir, sp.fileName)
 	part := dest + ".part"
+
+	if s.adoptExternal(dest, sp) {
+		return nil
+	}
 
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return err
@@ -175,4 +193,72 @@ func (s *Store) Download(model string, onProgress func(received, total int64)) e
 		return fmt.Errorf("checksum mismatch for %s: got %s want %s", sp.fileName, got, sp.sha256)
 	}
 	return os.Rename(part, dest)
+}
+
+// adoptExternal links a matching model file found in an external models
+// directory (voxtype) into s.dir so it is reused instead of re-downloaded.
+// It returns true when dest now exists as a result.
+func (s *Store) adoptExternal(dest string, sp spec) bool {
+	if s.voxtypeDir == "" {
+		return false
+	}
+	src := filepath.Join(s.voxtypeDir, sp.fileName)
+	if _, err := os.Stat(src); err != nil {
+		return false
+	}
+	h := newSHA256()
+	if err := hashFile(h, src); err != nil {
+		return false
+	}
+	if fmt.Sprintf("%x", h.Sum(nil)) != sp.sha256 {
+		return false
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return false
+	}
+	if err := os.Link(src, dest); err == nil {
+		return true
+	}
+	if err := copyFile(src, dest); err != nil {
+		return false
+	}
+	return true
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	return out.Close()
+}
+
+// voxtypeModelsDir returns the directory where voxtype keeps its whisper
+// models. INTERAGENT_VOXTYPE_MODELS_DIR overrides it; otherwise XDG data home
+// (defaulting to ~/.local/share) is used.
+func voxtypeModelsDir() string {
+	if d := os.Getenv("INTERAGENT_VOXTYPE_MODELS_DIR"); d != "" {
+		return d
+	}
+	base := ""
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		base = xdg
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return filepath.Join(os.TempDir(), "voxtype", "models")
+		}
+		base = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(base, "voxtype", "models")
 }

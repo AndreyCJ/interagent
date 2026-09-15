@@ -8,7 +8,7 @@ import { useOverlay } from '../features/overlay/useOverlay'
 import SettingsPanel from '../features/settings/SettingsPanel.vue'
 
 const { mode, loadMode: loadOverlayMode, toggleMode: toggleOverlayMode, show, hide } = useOverlay()
-const { isListening, error, load: loadAudio, toggle: toggleAudio, openSettings } = useAudio()
+const { isListening, busy, error, load: loadAudio, toggle: toggleAudio, openSettings } = useAudio()
 const showSettings = ref(false)
 
 onMounted(() => {
@@ -20,7 +20,7 @@ onMounted(() => {
 <template>
   <OverlayWindow :visible="true" theme="transparent">
     <div class="controls">
-      <MicButton :listening="isListening" @toggle="toggleAudio" />
+      <MicButton :listening="isListening" :busy="busy" @toggle="toggleAudio" />
       <span v-if="error" class="err">{{ error }}</span>
       <button v-if="error" @click="openSettings">Open Settings</button>
       <button @click="toggleOverlayMode">Mode: {{ mode }}</button>

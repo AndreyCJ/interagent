@@ -1,6 +1,7 @@
 <script setup lang="ts">
 defineProps<{
   listening: boolean
+  busy?: boolean
 }>()
 
 defineEmits<{
@@ -9,7 +10,13 @@ defineEmits<{
 </script>
 
 <template>
-  <button class="mic-button" :class="{ active: listening }" @click="$emit('toggle')">
-    {{ listening ? 'Stop' : 'Listen' }}
+  <button
+    class="mic-button"
+    :class="{ active: listening }"
+    :disabled="busy"
+    @click="$emit('toggle')"
+  >
+    <span v-if="busy" class="mic-spinner" aria-hidden="true"></span>
+    {{ busy ? 'Loading...' : listening ? 'Stop' : 'Listen' }}
   </button>
 </template>

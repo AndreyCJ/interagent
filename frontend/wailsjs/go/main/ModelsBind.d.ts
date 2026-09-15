@@ -4,4 +4,6 @@ import {port} from '../models';
 
 export function DownloadSTTModel():Promise<void>;
 
+export function GetModelStatus(arg1:string):Promise<port.STTModelStatus>;
+
 export function GetSTTModelStatus():Promise<port.STTModelStatus>;

@@ -18,12 +18,15 @@ func (s *Settings) Get() (port.AppSettings, error) {
 	return s.store.GetSettings()
 }
 
-var sttModels = map[string]bool{"tiny": true, "base": true, "small": true}
+var sttModels = map[string]bool{
+	"tiny": true, "base": true, "small": true,
+	"large-v3": true, "large-v3-turbo": true,
+}
 var sttLanguages = map[string]bool{"auto": true, "ru": true, "en": true}
 
 func (s *Settings) Save(cfg port.AppSettings) error {
 	if !sttModels[cfg.SttModel] {
-		return fmt.Errorf("invalid stt model %q (want tiny, base or small)", cfg.SttModel)
+		return fmt.Errorf("invalid stt model %q (want tiny, base, small, large-v3 or large-v3-turbo)", cfg.SttModel)
 	}
 	if !sttLanguages[cfg.SttLanguage] {
 		return fmt.Errorf("invalid stt language %q (want auto, ru or en)", cfg.SttLanguage)

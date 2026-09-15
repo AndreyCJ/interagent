@@ -6,6 +6,10 @@ export function DownloadSTTModel() {
   return window['go']['main']['ModelsBind']['DownloadSTTModel']();
 }
 
+export function GetModelStatus(arg1) {
+  return window['go']['main']['ModelsBind']['GetModelStatus'](arg1);
+}
+
 export function GetSTTModelStatus() {
   return window['go']['main']['ModelsBind']['GetSTTModelStatus']();
 }

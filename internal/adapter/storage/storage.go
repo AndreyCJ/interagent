@@ -68,6 +68,9 @@ func (s *Store) migrate() error {
 	if err := s.addSettingsColumns(); err != nil {
 		return err
 	}
+	if _, err := s.db.Exec(`UPDATE settings SET stt_model = 'large-v3' WHERE stt_model = 'base'`); err != nil {
+		return err
+	}
 	return s.migrateDefaultAgent()
 }
 
@@ -90,7 +93,7 @@ func (s *Store) addSettingsColumns() error {
 	}
 	rows.Close()
 	for _, ddl := range []string{
-		"stt_model TEXT NOT NULL DEFAULT 'base'",
+		"stt_model TEXT NOT NULL DEFAULT 'large-v3'",
 		"stt_language TEXT NOT NULL DEFAULT 'auto'",
 	} {
 		col := ddl[:strings.Index(ddl, " ")]
@@ -137,7 +140,7 @@ func (s *Store) seed() error {
 		}
 		if _, err := s.db.Exec(
 			`INSERT INTO settings (id, theme, language, auto_start_listening, shortcuts, stt_model, stt_language)
-			 VALUES (1, 'transparent', 'en', 0, ?, 'base', 'auto')`,
+			 VALUES (1, 'transparent', 'en', 0, ?, 'large-v3', 'auto')`,
 			shortcutsJSON,
 		); err != nil {
 			return err

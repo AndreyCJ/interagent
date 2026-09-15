@@ -75,6 +75,17 @@ func TestSettings_Save_RejectsInvalidSTTModel(t *testing.T) {
 	}
 }
 
+func TestSettings_Save_AllowsLargeModels(t *testing.T) {
+	store := newMockSettingsStore()
+	s := NewSettings(store)
+	for _, model := range []string{"large-v3", "large-v3-turbo"} {
+		cfg := port.AppSettings{Theme: "dark", SttModel: model, SttLanguage: "auto"}
+		if err := s.Save(cfg); err != nil {
+			t.Errorf("Save() rejected model %q: %v", model, err)
+		}
+	}
+}
+
 func TestSettings_Save_RejectsInvalidSTTLanguage(t *testing.T) {
 	store := newMockSettingsStore()
 	s := NewSettings(store)

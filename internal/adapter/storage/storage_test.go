@@ -141,8 +141,8 @@ func TestStorage_GetSettings_ReturnsSeededDefaults(t *testing.T) {
 	if sc, ok := ids["overlay_mode"]; !ok || !sc.Enabled {
 		t.Errorf("default shortcut overlay_mode should exist and be enabled: %+v", sc)
 	}
-	if settings.SttModel != "base" {
-		t.Errorf("SttModel = %q, want base", settings.SttModel)
+	if settings.SttModel != "large-v3" {
+		t.Errorf("SttModel = %q, want large-v3", settings.SttModel)
 	}
 	if settings.SttLanguage != "auto" {
 		t.Errorf("SttLanguage = %q, want auto", settings.SttLanguage)
@@ -208,8 +208,42 @@ func TestStorage_Migrate_AddsSTTColumns(t *testing.T) {
 	if err := db.QueryRow(`SELECT stt_model, stt_language FROM settings WHERE id = 1`).Scan(&model, &lang); err != nil {
 		t.Fatalf("stt columns missing after migrate: %v", err)
 	}
-	if model != "base" || lang != "auto" {
-		t.Errorf("defaults after migrate = (%q, %q), want (base, auto)", model, lang)
+	if model != "large-v3" || lang != "auto" {
+		t.Errorf("defaults after migrate = (%q, %q), want (large-v3, auto)", model, lang)
+	}
+}
+
+func TestStorage_Migrate_UpgradesLegacyBaseModel(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:mem-upgrade?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE settings (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		theme TEXT NOT NULL,
+		language TEXT NOT NULL,
+		auto_start_listening INTEGER NOT NULL,
+		shortcuts TEXT NOT NULL,
+		stt_model TEXT NOT NULL DEFAULT 'base',
+		stt_language TEXT NOT NULL DEFAULT 'auto'
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO settings (id, theme, language, auto_start_listening, shortcuts, stt_model, stt_language)
+		VALUES (1, 'transparent', 'en', 0, '[]', 'base', 'auto')`); err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{db: db, crypt: testCrypto{}}
+	if err := s.migrate(); err != nil {
+		t.Fatalf("migrate() error: %v", err)
+	}
+	var model string
+	if err := db.QueryRow(`SELECT stt_model FROM settings WHERE id = 1`).Scan(&model); err != nil {
+		t.Fatal(err)
+	}
+	if model != "large-v3" {
+		t.Errorf("legacy 'base' stt_model = %q after migrate, want large-v3", model)
 	}
 }
 

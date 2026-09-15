@@ -32,7 +32,13 @@ func newTestStore(t *testing.T, dir string, models map[string]testModel, client 
 	for key, m := range models {
 		specs[key] = spec{fileName: m.fileName, url: m.url, sha256: checksum(t, m.data)}
 	}
-	return &Store{dir: dir, client: client, specs: specs}
+	return &Store{dir: dir, client: client, specs: specs, voxtypeDir: t.TempDir()}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 // rangeHandler serves a file, honoring Range requests (resume support).
@@ -208,8 +214,8 @@ func TestChecksumsFile_Format(t *testing.T) {
 		t.Fatalf("read checksums.txt: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) != 4 {
-		t.Fatalf("checksums.txt must have exactly 4 lines, got %d", len(lines))
+	if len(lines) != 6 {
+		t.Fatalf("checksums.txt must have exactly 6 lines, got %d", len(lines))
 	}
 	for _, line := range lines {
 		parts := strings.Fields(line)
@@ -221,9 +227,110 @@ func TestChecksumsFile_Format(t *testing.T) {
 
 func TestStore_Specs_AllModels(t *testing.T) {
 	store := New(t.TempDir())
-	for _, key := range []string{"ggml-base", "ggml-tiny", "ggml-small", "silero-vad"} {
+	for _, key := range []string{"ggml-base", "ggml-tiny", "ggml-small", "ggml-large-v3", "ggml-large-v3-turbo", "silero-vad"} {
 		if _, err := store.specFor(key); err != nil {
 			t.Errorf("missing spec for %q: %v", key, err)
 		}
 	}
+}
+
+func TestStore_Download_AdoptsMatchingExternalModel(t *testing.T) {
+	payload := []byte("model bytes shared with voxtype")
+	voxtypeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(voxtypeDir, "ggml-base.bin"), payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	clientPanics := &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			t.Fatal("network must not be touched when an external model is adopted")
+			return nil, fmt.Errorf("unreachable")
+		}),
+	}
+	store := newTestStore(t, dir, map[string]testModel{
+		"ggml-base": {fileName: "ggml-base.bin", data: payload},
+	}, clientPanics)
+	store.voxtypeDir = voxtypeDir
+
+	if err := store.Download("ggml-base", func(int64, int64) {}); err != nil {
+		t.Fatalf("Download() error: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "ggml-base.bin"))
+	if err != nil {
+		t.Fatalf("read adopted file: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Error("adopted file content mismatch")
+	}
+}
+
+func TestStore_Download_ExternalChecksumMismatch_FallsBackToNetwork(t *testing.T) {
+	payload := []byte("payload")
+	voxtypeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(voxtypeDir, "ggml-base.bin"), []byte("corrupt voxtype copy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(rangeHandler(t, payload))
+	defer srv.Close()
+	dir := t.TempDir()
+	store := newTestStore(t, dir, map[string]testModel{
+		"ggml-base": {fileName: "ggml-base.bin", data: payload, url: srv.URL},
+	}, srv.Client())
+	store.voxtypeDir = voxtypeDir
+
+	if err := store.Download("ggml-base", func(int64, int64) {}); err != nil {
+		t.Fatalf("Download() error: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "ggml-base.bin"))
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Error("corrupt external copy must not win over the network download")
+	}
+}
+
+func TestStore_Download_ExternalMissing_Downloads(t *testing.T) {
+	payload := []byte("payload")
+	srv := httptest.NewServer(rangeHandler(t, payload))
+	defer srv.Close()
+	dir := t.TempDir()
+	store := newTestStore(t, dir, map[string]testModel{
+		"ggml-base": {fileName: "ggml-base.bin", data: payload, url: srv.URL},
+	}, srv.Client())
+	store.voxtypeDir = t.TempDir()
+
+	if err := store.Download("ggml-base", func(int64, int64) {}); err != nil {
+		t.Fatalf("Download() error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ggml-base.bin")); err != nil {
+		t.Fatalf("model not downloaded: %v", err)
+	}
+}
+
+func TestVoxtypeModelsDir(t *testing.T) {
+	t.Run("env override wins", func(t *testing.T) {
+		t.Setenv("INTERAGENT_VOXTYPE_MODELS_DIR", "/tmp/custom-voxtype")
+		t.Setenv("XDG_DATA_HOME", "/xdg")
+		if got := voxtypeModelsDir(); got != "/tmp/custom-voxtype" {
+			t.Errorf("voxtypeModelsDir() = %q, want env override", got)
+		}
+	})
+
+	t.Run("prefers XDG data home", func(t *testing.T) {
+		t.Setenv("INTERAGENT_VOXTYPE_MODELS_DIR", "")
+		t.Setenv("XDG_DATA_HOME", "/xdg")
+		if got := voxtypeModelsDir(); got != "/xdg/voxtype/models" {
+			t.Errorf("voxtypeModelsDir() = %q, want /xdg/voxtype/models", got)
+		}
+	})
+
+	t.Run("falls back to ~/.local/share", func(t *testing.T) {
+		t.Setenv("INTERAGENT_VOXTYPE_MODELS_DIR", "")
+		t.Setenv("XDG_DATA_HOME", "")
+		t.Setenv("HOME", "/home/tester")
+		if got := voxtypeModelsDir(); got != "/home/tester/.local/share/voxtype/models" {
+			t.Errorf("voxtypeModelsDir() = %q, want ~/.local/share default", got)
+		}
+	})
 }

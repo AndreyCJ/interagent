@@ -80,3 +80,88 @@ func TestPermissionErrorPayload_WireContract(t *testing.T) {
 		t.Errorf("error payload = %T, want string", payload["error"])
 	}
 }
+
+type fakeModels struct {
+	ensured []string
+	failOn  map[string]error
+}
+
+func (f *fakeModels) Ensure(model string) error {
+	f.ensured = append(f.ensured, model)
+	if err := f.failOn[model]; err != nil {
+		return err
+	}
+	return nil
+}
+
+func TestEnsureSTTModels(t *testing.T) {
+	t.Run("rejects empty model", func(t *testing.T) {
+		m := &fakeModels{}
+		if err := ensureSTTModels(m, ""); err == nil {
+			t.Fatal("expected error for empty STT model")
+		}
+		if len(m.ensured) != 0 {
+			t.Errorf("ensured %v, want none", m.ensured)
+		}
+	})
+
+	t.Run("ensures store keys and VAD in order", func(t *testing.T) {
+		m := &fakeModels{}
+		if err := ensureSTTModels(m, "base"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"ggml-base", "silero-vad"}
+		if len(m.ensured) != len(want) {
+			t.Fatalf("ensured %v, want %v", m.ensured, want)
+		}
+		for i := range want {
+			if m.ensured[i] != want[i] {
+				t.Errorf("ensured[%d] = %q, want %q", i, m.ensured[i], want[i])
+			}
+		}
+	})
+
+	t.Run("ensures ggml-large-v3 store key for large-v3", func(t *testing.T) {
+		m := &fakeModels{}
+		if err := ensureSTTModels(m, "large-v3"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"ggml-large-v3", "silero-vad"}
+		if len(m.ensured) != len(want) {
+			t.Fatalf("ensured %v, want %v", m.ensured, want)
+		}
+		for i := range want {
+			if m.ensured[i] != want[i] {
+				t.Errorf("ensured[%d] = %q, want %q", i, m.ensured[i], want[i])
+			}
+		}
+	})
+
+	t.Run("returns on ensure failure and stops", func(t *testing.T) {
+		m := &fakeModels{failOn: map[string]error{"ggml-base": errors.New("download failed")}}
+		if err := ensureSTTModels(m, "base"); err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if len(m.ensured) != 1 {
+			t.Errorf("ensured %v, want stop after first failure", m.ensured)
+		}
+	})
+}
+
+func TestSTTModelKey(t *testing.T) {
+	cases := map[string]string{
+		"tiny":           "ggml-tiny",
+		"base":           "ggml-base",
+		"small":          "ggml-small",
+		"large-v3":       "ggml-large-v3",
+		"large-v3-turbo": "ggml-large-v3-turbo",
+		"ggml-base":      "ggml-base",
+		"silero-vad":     "silero-vad",
+		"some-custom":    "some-custom",
+	}
+	for in, want := range cases {
+		if got := sttModelKey(in); got != want {
+			t.Errorf("sttModelKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

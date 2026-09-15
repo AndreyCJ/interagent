@@ -3,10 +3,18 @@ import { flushPromises, mount } from '@vue/test-utils'
 import type { AppSettings } from '../../../common/types/api.types'
 
 const { mockWails } = vi.hoisted(() => ({
-  mockWails: { GetSettings: vi.fn(), SaveSettings: vi.fn() },
+  mockWails: {
+    GetSettings: vi.fn(),
+    SaveSettings: vi.fn(),
+    DownloadSTTModel: vi.fn(),
+    GetModelStatus: vi.fn(),
+  },
 }))
 
 vi.mock('../../../common/utils/wails', () => mockWails)
+vi.mock('../../../common/utils/events', () => ({
+  onEvent: () => {},
+}))
 
 import { useSettings } from '../useSettings'
 import SettingsPanel from '../SettingsPanel.vue'
@@ -82,5 +90,19 @@ describe('SettingsPanel', () => {
     expect((selects[1].element as HTMLSelectElement).value).toBe('auto')
     await wrapper.find('button').trigger('click')
     expect(mockWails.SaveSettings).toHaveBeenCalledWith(base)
+  })
+
+  it('offers large-v3 and large-v3-turbo and defaults to large-v3', async () => {
+    mockWails.GetSettings.mockResolvedValue({ ...base, sttModel: 'large-v3' })
+    mockWails.SaveSettings.mockResolvedValue(undefined)
+    const wrapper = mount(SettingsPanel)
+    await flushPromises()
+    const select = wrapper.findAll('select')[0]
+    const options = select.findAll('option').map(o => o.attributes('value'))
+    expect(options).toContain('large-v3')
+    expect(options).toContain('large-v3-turbo')
+    expect((select.element as HTMLSelectElement).value).toBe('large-v3')
+    await wrapper.find('button').trigger('click')
+    expect(mockWails.SaveSettings).toHaveBeenCalledWith({ ...base, sttModel: 'large-v3' })
   })
 })

@@ -8,6 +8,8 @@ export function DownloadSTTModel():Promise<void>;
 
 export function GetAudioDevices():Promise<Array<port.AudioDevice>>;
 
+export function GetModelStatus(arg1:string):Promise<port.STTModelStatus>;
+
 export function GetOllamaModels():Promise<Array<string>>;
 
 export function GetSTTModelStatus():Promise<port.STTModelStatus>;
