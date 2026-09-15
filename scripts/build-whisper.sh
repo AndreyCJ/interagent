@@ -10,6 +10,8 @@ if [ ! -d "$W" ]; then
   exit 1
 fi
 
+: "${IA_BUILD_PARALLELISM:=4}"
+
 CMAKE_FLAGS="-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
   -DWHISPER_BUILD_EXAMPLES=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF"
 
@@ -21,7 +23,7 @@ fi
 
 echo "cmake flags: $CMAKE_FLAGS"
 cmake -S "$W" -B "$W/build" $CMAKE_FLAGS
-cmake --build "$W/build" --config Release --target whisper --parallel
+cmake --build "$W/build" --config Release --target whisper --parallel "$IA_BUILD_PARALLELISM"
 
 mkdir -p "$W/dist/lib"
 find "$W/build" \( -name 'libwhisper.a' -o -name 'libggml*.a' \) -exec cp {} "$W/dist/lib/" \;
