@@ -10,6 +10,7 @@ import { onEvent } from '../../common/utils/events'
 interface AppErrorPayload {
   stage?: string
   permission?: string
+  error?: string
 }
 
 export function useAudio() {
@@ -20,7 +21,11 @@ export function useAudio() {
 
   onEvent('app:error', (payload: unknown) => {
     const p = (payload ?? {}) as AppErrorPayload
-    if (p.permission) errorPermission.value = p.permission
+    if (p.permission) {
+      errorPermission.value = p.permission
+      return
+    }
+    if (p.error) error.value = p.error
   })
 
   async function load() {

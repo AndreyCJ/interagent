@@ -91,6 +91,16 @@ export function useChat() {
     loading.value = false
   })
 
+  onEvent('transcription:committed', payload => {
+    const p = payload as { text?: string; source?: string }
+    if (!p?.text) return
+    if (p.source === 'mic') {
+      messages.value.push({ role: 'user', text: p.text })
+    } else if (p.source === 'system') {
+      messages.value.push({ role: 'interviewer', text: p.text })
+    }
+  })
+
   onEvent('transcription:done', payload => {
     const p = payload as { text?: string; source?: string }
     if (!p?.text) return

@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"fmt"
 	"sync"
 
 	"interagent/internal/port"
@@ -17,7 +18,7 @@ type audioInput interface {
 
 type sttStreamer interface {
 	Feed(chunk []byte) error
-	Stream(sampleRate int, onPartial func(string), onDone func(text string, confidence float64, language string)) error
+	Stream(sampleRate int, onPartial func(string), onCommitted func(string), onDone func(text string, confidence float64, language string)) error
 	Close() error
 }
 
@@ -56,7 +57,15 @@ func (a *AudioPipeline) Start() error {
 	a.mu.Unlock()
 
 	go func() {
-		if err := a.stt.Stream(captureSampleRate, nil, a.onDone); err != nil {
+		defer func() {
+			// A panic in STT must not take the whole app down (live crash:
+			// stream.go slice overreach on VAD time-mapped word ends). Surface it
+			// as an error event and let the frontend decide how to recover.
+			if r := recover(); r != nil {
+				_ = a.events.Emit("app:error", map[string]string{"stage": "stt", "error": fmt.Sprintf("panic: %v", r)})
+			}
+		}()
+		if err := a.stt.Stream(captureSampleRate, nil, a.onCommitted, a.onDone); err != nil {
 			_ = a.events.Emit("app:error", map[string]string{"stage": "stt", "error": err.Error()})
 		}
 	}()
@@ -84,6 +93,29 @@ func (a *AudioPipeline) IsRunning() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.running
+}
+
+// onCommitted receives mid-speech words that whisper has committed beyond
+// further revision (ADR-007). Surfaced to the chat live via
+// transcription:committed and appended to the session history for both sources,
+// so a long turn is visible in the chat/transcript/LLM context as it is spoken.
+// Never triggers the LLM and emits no transcription:done — only onDone does.
+func (a *AudioPipeline) onCommitted(text string) {
+	if text == "" {
+		return
+	}
+	_ = a.events.Emit("transcription:committed", map[string]string{
+		"text":   text,
+		"source": string(a.source),
+	})
+	if a.writer == nil {
+		return
+	}
+	role := "user"
+	if a.source == port.AudioSourceSystem {
+		role = "interviewer"
+	}
+	_ = a.writer.AppendMessage(role, text)
 }
 
 func (a *AudioPipeline) onDone(text string, confidence float64, language string) {

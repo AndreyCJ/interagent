@@ -190,6 +190,28 @@ describe('useChat', () => {
     expect(messages.value[0].text).toBe('What is your approach?')
   })
 
+  it('appends mic committed transcription as a user message on transcription:committed', () => {
+    const { messages } = useChat()
+    fire('transcription:committed', { text: 'my answer', source: 'mic' })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('user')
+    expect(messages.value[0].text).toBe('my answer')
+  })
+
+  it('appends system committed transcription as an interviewer message on transcription:committed', () => {
+    const { messages } = useChat()
+    fire('transcription:committed', { text: 'the key', source: 'system' })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('interviewer')
+    expect(messages.value[0].text).toBe('the key')
+  })
+
+  it('ignores transcription:committed without text', () => {
+    const { messages } = useChat()
+    fire('transcription:committed', { text: '', source: 'system' })
+    expect(messages.value).toEqual([])
+  })
+
   it('ignores transcription:done without text', () => {
     const { messages } = useChat()
     fire('transcription:done', { text: '', source: 'system' })

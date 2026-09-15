@@ -17,9 +17,11 @@ type sttContext interface {
 	SetVAD(bool)
 	SetVADModelPath(string)
 	SetVADThreshold(float32)
+	SetTokenTimestamps(bool)
 	Process([]float32, whispercpp.EncoderBeginCallback, whispercpp.SegmentCallback, whispercpp.ProgressCallback) error
 	NextSegment() (whispercpp.Segment, error)
 	DetectedLanguage() string
+	IsText(whispercpp.Token) bool
 }
 
 // Compile-time assertions that the real binding satisfies the seams.

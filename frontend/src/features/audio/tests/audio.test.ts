@@ -54,6 +54,32 @@ describe('MicButton', () => {
     wrapper.trigger('click')
     expect(wrapper.emitted('toggle')).toBeTruthy()
   })
+
+  it('shows Loading and disables while busy', () => {
+    const wrapper = mount(MicButton, {
+      props: { listening: false, busy: true },
+    })
+
+    expect(wrapper.text()).toContain('Loading')
+    expect(wrapper.attributes('disabled')).toBeDefined()
+  })
+
+  it('does not emit toggle while busy', () => {
+    const wrapper = mount(MicButton, {
+      props: { listening: true, busy: true },
+    })
+
+    wrapper.trigger('click')
+    expect(wrapper.emitted('toggle')).toBeFalsy()
+  })
+
+  it('renders a spinner while busy', () => {
+    const wrapper = mount(MicButton, {
+      props: { listening: false, busy: true },
+    })
+
+    expect(wrapper.find('.mic-spinner').exists()).toBe(true)
+  })
 })
 
 describe('useAudio', () => {
@@ -121,6 +147,24 @@ describe('useAudio', () => {
     resolveStart()
     await first
     expect(busy.value).toBe(false)
+  })
+
+  it('surfaces non-permission app:error into error', () => {
+    const { error, errorPermission } = useAudio()
+    mockEvents.emit('app:error', { stage: 'stt', error: 'cannot load model' })
+    expect(error.value).toBe('cannot load model')
+    expect(errorPermission.value).toBeNull()
+  })
+
+  it('keeps permission app:error separate as errorPermission', () => {
+    const { error, errorPermission } = useAudio()
+    mockEvents.emit('app:error', {
+      stage: 'permission',
+      permission: 'microphone',
+      error: 'mic blocked',
+    })
+    expect(errorPermission.value).toBe('microphone')
+    expect(error.value).toBeNull()
   })
 
   it('openSettings opens the screen-recording settings pane', async () => {

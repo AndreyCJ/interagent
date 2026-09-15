@@ -138,6 +138,43 @@ AudioInput (SCK / mic) → STT whisper.cpp (endpoint detection)
 
 ---
 
-**Linux note:** system sound is captured via the XDG ScreenCast portal audio stream (the portal
-picker is the consent), not the default-sink monitor; the mic uses the pulse default source.
-Otherwise the behaviour is unchanged: system sound → auto-answer, mic → history. Details: ADR-013.
+**Linux note (amended 2026-09-10):** system sound is captured from the pulse default-sink monitor
+(`@DEFAULT_SINK@.monitor`) with no consent — a native Linux app is not permission-gated; the earlier XDG
+ScreenCast portal picker is gone. The mic uses the pulse default source. Otherwise the behaviour is
+unchanged: system sound → auto-answer, mic → history. Details: ADR-013.
+
+**Amendment (2026-09-09, committed-segment streaming):** long continuous speech previously lost the
+audio beyond the 5 s window front (single_recurrent guess dropped it) — the answer could miss the
+correction at the start of a long question / long user turn.
+
+- **Contract split.** `port.STT.Stream` grows a third callback between `onPartial` and `onDone`:
+  `onCommitted(text)`. `onPartial` stays unused (no partials, `nil` from the pipeline);
+  `onCommitted` fires mid-speech when whisper is confident a prefix of the window will not change;
+  `onDone` fires at a phrase end (silence gate), as before.
+- **Pipeline routing** (unchanged semantics, new channel): `onCommitted` appends to session history
+  only — `interviewer` for system sound, `user` for mic, **no LLM call, no `transcription:done`
+  event**. Only `onDone` triggers the auto-answer/`transcription:done` path. Final history for a
+  turn = committed words ∪ done (tail) words — each span once, **no duplication**: committed words
+  are trimmed out of the window before the finalize run sees the tail.
+- **Window never front-drops.** The rolling window is trimmed only at emission points. `maxWindow`
+  (10 s) is a **force-commit** cap, not a silent truncation: on overflow, whisper re-runs the whole
+  window and commits whatever it transcribes, then trims to the last spoken word.
+- **One word lookahead.** A run's words are compared (longest common prefix) with the previous run's
+  words (`SetTokenTimestamps(true)` + `NextSegment`, no SegmentCallback — a callback forces the
+  binding's `single_segment` mode). All-but-one stable words are committed; the single lookahead
+  word keeps finalize able to close the phrase cleanly. Whisper runs only at gate triggers (silence
+  finalize 400 ms, cadence backstop 3 s, catch-all 4 s, cap) — still no per-chunk re-transcription.
+- **Spans as history.** Word timestamps (`Token.Start/End`) give each word a position relative to
+  the window start; commits trim the window at exactly the last committed word's end, and the next
+  run's words are re-based so agreement is always position-correct.
+
+**Amendment (2026-09-11, committed words visible in the live chat):** committed mid-speech words were
+written to session history only — during a continuous turn the overlay chat showed nothing until a
+phrase ended (silence gate), which read to the user as "Listen is broken".
+
+- **New runtime event `transcription:committed`** `{text, source}` ("system" | "mic"), emitted from
+  `onCommitted` in parallel with the session-history append. The overlay chat appends an
+  `interviewer` (system) or `user` (mic) message on this event, so a long turn is visible live.
+- **Semantics unchanged otherwise:** `onCommitted` still never triggers the LLM and still emits no
+  `transcription:done`; only `onDone` finalizes the phrase (auto-answer + `transcription:done`).
+  The final history for a turn remains committed ∪ done — each span exactly once.

@@ -26,8 +26,19 @@ type AudioInput interface {
 type STT interface {
 	// Feed queues raw PCM bytes (little-endian float32, mono, sampleRate from Stream).
 	Feed(chunk []byte) error
-	// Stream processes the stream. onPartial fires with cumulative phrase text,
-	// onDone with a finalized phrase. Returns nil on Close, an error otherwise.
-	Stream(sampleRate int, onPartial func(string), onDone func(text string, confidence float64, language string)) error
+	// Stream processes the stream.
+	//
+	// onPartial fires with the live draft of the current window (optional; the
+	// pipeline passes nil — there is no live-draft UI, ADR-007).
+	//
+	// onCommitted fires mid-speech with text that is finalized beyond further
+	// revision and was pushed to the session history (final, non-droppable).
+	// It never fires again for the same span.
+	//
+	// onDone fires at a phrase boundary (trailing silence) with the remaining
+	// uncommitted tail of the phrase — the span NOT already emitted via
+	// onCommitted — plus its confidence and detected language. It drives
+	// auto-answer and cancel-on-new-input exactly as today (ADR-007).
+	Stream(sampleRate int, onPartial func(string), onCommitted func(string), onDone func(text string, confidence float64, language string)) error
 	Close() error
 }

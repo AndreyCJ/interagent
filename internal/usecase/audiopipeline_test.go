@@ -42,14 +42,15 @@ func (m *mockPipelineInput) startedCount() int {
 }
 
 type mockPipelineSTT struct {
-	mu         sync.Mutex
-	onPartial  func(string)
-	onDone     func(string, float64, string)
-	sampleRate int
-	feedCalls  int
-	streamErr  error
-	closed     bool
-	stopCh     chan struct{}
+	mu          sync.Mutex
+	onPartial   func(string)
+	onCommitted func(string)
+	onDone      func(string, float64, string)
+	sampleRate  int
+	feedCalls   int
+	streamErr   error
+	closed      bool
+	stopCh      chan struct{}
 }
 
 func (m *mockPipelineSTT) Feed(chunk []byte) error {
@@ -59,10 +60,11 @@ func (m *mockPipelineSTT) Feed(chunk []byte) error {
 	return nil
 }
 
-func (m *mockPipelineSTT) Stream(sampleRate int, onPartial func(string), onDone func(string, float64, string)) error {
+func (m *mockPipelineSTT) Stream(sampleRate int, onPartial func(string), onCommitted func(string), onDone func(string, float64, string)) error {
 	m.mu.Lock()
 	m.sampleRate = sampleRate
 	m.onPartial = onPartial
+	m.onCommitted = onCommitted
 	m.onDone = onDone
 	m.stopCh = make(chan struct{})
 	m.mu.Unlock()
@@ -86,6 +88,15 @@ func (m *mockPipelineSTT) Close() error {
 func (m *mockPipelineSTT) partial(text string) {
 	m.mu.Lock()
 	fn := m.onPartial
+	m.mu.Unlock()
+	if fn != nil {
+		fn(text)
+	}
+}
+
+func (m *mockPipelineSTT) committed(text string) {
+	m.mu.Lock()
+	fn := m.onCommitted
 	m.mu.Unlock()
 	if fn != nil {
 		fn(text)
@@ -251,6 +262,72 @@ func TestAudioPipeline_NoPartialEvents(t *testing.T) {
 	stt.partial("Hello")
 	if events.count("transcription:partial") != 0 {
 		t.Errorf("transcription:partial count = %d, want 0", events.count("transcription:partial"))
+	}
+}
+
+func TestAudioPipeline_SystemCommitted_SurfacesToChatAndHistory(t *testing.T) {
+	events := newEventRecorder()
+	stt := &mockPipelineSTT{}
+	llm := &mockPipelineLLM{}
+	history := &mockHistory{}
+	p := NewAudioPipeline(port.AudioSourceSystem, events, &mockPipelineInput{}, stt, llm, history)
+	if err := p.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+
+	waitFor(t, func() bool { return stt.sampleRateValue() == 48000 })
+	stt.committed("the key point")
+	stt.committed(" you made is")
+
+	waitFor(t, func() bool { role, _ := history.last(); return role == "interviewer" })
+	if events.count("transcription:done") != 0 {
+		t.Error("committed speech must not emit transcription:done")
+	}
+	if inputs, _ := llm.calls(); len(inputs) != 0 {
+		t.Error("committed speech must never trigger the LLM")
+	}
+	waitFor(t, func() bool { return events.count("transcription:committed") == 2 })
+	first := events.payload("transcription:committed", 0).(map[string]string)
+	if first["text"] != "the key point" || first["source"] != "system" {
+		t.Errorf("transcription:committed[0] payload = %v, want {text:the key point, source:system}", first)
+	}
+	second := events.payload("transcription:committed", 1).(map[string]string)
+	if second["text"] != " you made is" || second["source"] != "system" {
+		t.Errorf("transcription:committed[1] payload = %v, want {text: you made is, source:system}", second)
+	}
+	if role, text := history.last(); role != "interviewer" || text != " you made is" {
+		t.Errorf("history append = (%q, %q)", role, text)
+	}
+}
+
+func TestAudioPipeline_MicCommitted_SurfacesToChatAndHistory(t *testing.T) {
+	events := newEventRecorder()
+	stt := &mockPipelineSTT{}
+	llm := &mockPipelineLLM{}
+	history := &mockHistory{}
+	p := NewAudioPipeline(port.AudioSourceMic, events, &mockPipelineInput{}, stt, llm, history)
+	if err := p.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+
+	waitFor(t, func() bool { return stt.sampleRateValue() == 48000 })
+	stt.committed("my answer")
+	waitFor(t, func() bool { role, _ := history.last(); return role == "user" })
+	if events.count("transcription:done") != 0 {
+		t.Error("committed speech must not emit transcription:done")
+	}
+	if inputs, _ := llm.calls(); len(inputs) != 0 {
+		t.Error("committed speech must never trigger the LLM")
+	}
+	waitFor(t, func() bool { return events.count("transcription:committed") == 1 })
+	payload := events.payload("transcription:committed", 0).(map[string]string)
+	if payload["text"] != "my answer" || payload["source"] != "mic" {
+		t.Errorf("transcription:committed payload = %v, want {text:my answer, source:mic}", payload)
+	}
+	if role, text := history.last(); role != "user" || text != "my answer" {
+		t.Errorf("history append = (%q, %q), want (user, my answer)", role, text)
 	}
 }
 
