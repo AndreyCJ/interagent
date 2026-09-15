@@ -16,7 +16,6 @@ import (
 	"interagent/internal/adapter/llm/ollama"
 	"interagent/internal/adapter/llm/openai"
 	modelsadapter "interagent/internal/adapter/models"
-	"interagent/internal/adapter/portal"
 	"interagent/internal/adapter/storage"
 	whisperadapter "interagent/internal/adapter/stt/whisper"
 	"interagent/internal/adapter/stub"
@@ -90,8 +89,7 @@ func NewApp() *App {
 	ev := eventsimpl.New(context.TODO())
 	overlayAdapter := window.New()
 	hotkeysAdapter := stub.NewHotkeys()
-	portalAdapter := portal.NewScreenCast()
-	permissionsAdapter := system.NewPermissions(portalAdapter, audio.PulseReachable)
+	permissionsAdapter := system.NewPermissions(audio.PulseReachable)
 
 	factory := usecase.LLMFactory(func(cfg port.AgentConfig) (port.LLM, error) {
 		// env var overrides stored agent config
@@ -144,7 +142,7 @@ func NewApp() *App {
 	vadPath := filepath.Join(modelsDir, "ggml-silero-v6.2.0.bin")
 	sttSystem := whisperadapter.New(modelPath, vadPath, sttLanguage)
 	sttMic := whisperadapter.New(modelPath, vadPath, sttLanguage)
-	captureSystem := audio.NewSystemCapture(portalAdapter)
+	captureSystem := audio.NewSystemCapture()
 	captureMic := audio.NewMicrophoneCapture()
 	audioSystem := usecase.NewAudioPipeline(port.AudioSourceSystem, ev, captureSystem, sttSystem, llm, sessionUC)
 	audioMic := usecase.NewAudioPipeline(port.AudioSourceMic, ev, captureMic, sttMic, llm, sessionUC)
@@ -259,7 +257,7 @@ func permissionErrorPayload(perm port.Permission, err error) map[string]any {
 }
 
 // emitPermissionError surfaces the failing permission as structured data so the
-// frontend never has to string-match error messages (linux portal UX, macOS kept).
+// frontend never has to string-match error messages (macOS TCC, kept).
 func (a *App) emitPermissionError(perm port.Permission, err error) {
 	if a.events == nil {
 		return

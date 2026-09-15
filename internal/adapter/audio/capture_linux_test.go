@@ -320,27 +320,201 @@ func TestMicrophoneCapture_WithFakeReader_PushesChunkAndStops(t *testing.T) {
 	}
 }
 
-func TestSystemCapture_Start_WithoutPortal_ReturnsHonestError(t *testing.T) {
-	s := NewSystemCapture(nil)
+func TestSystemCapture_Start_WithoutPulseSeam_ReturnsActionableError(t *testing.T) {
+	old := openPulseReader
+	openPulseReader = nil
+	defer func() { openPulseReader = old }()
+
+	s := NewSystemCapture()
 	if err := s.Start(func([]byte) {}); err == nil {
-		t.Fatal("Start() = nil, want honest error when portal is nil")
+		t.Fatal("Start() = nil, want honest error when pulse seam is unavailable")
+	}
+}
+
+func TestSystemCapture_Start_UsesDefaultSinkMonitor(t *testing.T) {
+	oldOpen, oldList := openPulseReader, listPulseSources
+	defer func() { openPulseReader, listPulseSources = oldOpen, oldList }()
+
+	fake := newBlockingReader(t)
+	openPulseReader = func(dev string, rate, n int) (pulseReader, error) {
+		if dev != "@DEFAULT_SINK@.monitor" {
+			t.Errorf("openPulseReader device = %q, want default sink monitor", dev)
+		}
+		if rate != CaptureSampleRate || n != pulseChunkBytes(CaptureSampleRate) {
+			t.Errorf("openPulseReader(rate=%d, n=%d), want (%d, %d)", rate, n, CaptureSampleRate, pulseChunkBytes(CaptureSampleRate))
+		}
+		return fake, nil
+	}
+	listPulseSources = func() ([]pulseSourceInfo, error) { return nil, nil }
+
+	s := NewSystemCapture()
+	if err := s.Start(func([]byte) {}); err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	<-fake.entered
+	close(fake.release)
+	go func() { _ = s.Stop() }()
+	<-fake.closed
+}
+
+func TestSystemCapture_Start_PulseUnreachable_ActionableError(t *testing.T) {
+	oldOpen, oldList := openPulseReader, listPulseSources
+	defer func() { openPulseReader, listPulseSources = oldOpen, oldList }()
+
+	openPulseReader = func(dev string, rate, n int) (pulseReader, error) {
+		return nil, errors.New("pulse connection refused")
+	}
+	listPulseSources = func() ([]pulseSourceInfo, error) { return nil, nil }
+
+	s := NewSystemCapture()
+	err := s.Start(func([]byte) {})
+	if err == nil || !strings.Contains(err.Error(), "pipewire-pulse") {
+		t.Errorf("Start() error = %q, want actionable pipewire-pulse hint", err)
+	}
+}
+
+func TestSystemCapture_Devices_FiltersMonitorSources(t *testing.T) {
+	oldList := listPulseSources
+	listPulseSources = func() ([]pulseSourceInfo, error) {
+		return []pulseSourceInfo{
+			{Name: "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor", Description: "Built-in Analog Stereo Monitor", IsDefault: true},
+			{Name: "bluez_output.CC_22_3D_99_00_11.1", Description: "AirPods Pro", IsDefault: false},
+			{Name: "alsa_output.pci-0000_00_1f.3.analog-stereo", Description: "Built-in Analog Stereo", IsDefault: false},
+			{Name: "alsa_input.pci-0000_00_1f.3.analog-stereo", Description: "Built-in Analog Stereo", IsDefault: false},
+		}, nil
+	}
+	defer func() { listPulseSources = oldList }()
+
+	devs, err := NewSystemCapture().Devices()
+	if err != nil {
+		t.Fatalf("Devices() error: %v", err)
+	}
+	if len(devs) != 1 {
+		t.Fatalf("got %d devices, want 1 (only the monitor source)", len(devs))
+	}
+	if devs[0].ID != "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor" {
+		t.Errorf("devs[0] = %+v, want the monitor source", devs[0])
+	}
+}
+
+func TestSystemCapture_SetDevice_SwitchesTowardsMonitor(t *testing.T) {
+	oldOpen, oldList := openPulseReader, listPulseSources
+	defer func() { openPulseReader, listPulseSources = oldOpen, oldList }()
+
+	oldFake := newBlockingReader(t)
+	newFake := newBlockingReader(t)
+	openPulseReader = func(dev string, rate, n int) (pulseReader, error) {
+		if dev == "@DEFAULT_SINK@.monitor" {
+			return oldFake, nil
+		}
+		return newFake, nil
+	}
+	listPulseSources = func() ([]pulseSourceInfo, error) { return nil, nil }
+
+	s := NewSystemCapture()
+	if err := s.Start(func([]byte) {}); err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	<-oldFake.entered
+
+	devDone := make(chan error, 1)
+	go func() { devDone <- s.SetDevice("hdmi_output.1.monitor") }()
+	close(oldFake.release)
+	<-oldFake.ret
+	if err := <-devDone; err != nil {
+		t.Fatalf("SetDevice() error: %v", err)
+	}
+	<-oldFake.closed
+
+	select {
+	case <-newFake.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pump did not restart on the new monitor after SetDevice")
+	}
+
+	stopDone := make(chan struct{})
+	go func() { _ = s.Stop(); close(stopDone) }()
+	close(newFake.release)
+	<-stopDone
+	<-newFake.closed
+}
+
+func TestSystemCapture_Stop_JoinsPumpBeforeFreeingReader(t *testing.T) {
+	oldOpen, oldList := openPulseReader, listPulseSources
+	defer func() { openPulseReader, listPulseSources = oldOpen, oldList }()
+
+	fake := newBlockingReader(t)
+	openPulseReader = func(dev string, rate, n int) (pulseReader, error) { return fake, nil }
+	listPulseSources = func() ([]pulseSourceInfo, error) { return nil, nil }
+
+	s := NewSystemCapture()
+	if err := s.Start(func([]byte) {}); err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	<-fake.entered
+
+	select {
+	case <-fake.closed:
+		t.Fatal("reader freed while the pump is still blocked in Read")
+	default:
+	}
+
+	stopDone := make(chan struct{})
+	go func() { _ = s.Stop(); close(stopDone) }()
+
+	select {
+	case <-fake.closed:
+		t.Fatal("Stop freed the reader before the pump goroutine exited Read")
+	default:
+	}
+
+	close(fake.release)
+	<-fake.ret
+	<-stopDone
+	<-fake.closed
+}
+
+func TestSystemCapture_WithFakeReader_PushesChunkAndStops(t *testing.T) {
+	oldOpen, oldList := openPulseReader, listPulseSources
+	defer func() { openPulseReader, listPulseSources = oldOpen, oldList }()
+
+	fake := newBlockingReader(t)
+	fake.chunk = []byte{0x00, 0x00, 0x80, 0x3f} // one 1.0f float32 sample
+	openPulseReader = func(dev string, rate, n int) (pulseReader, error) { return fake, nil }
+	listPulseSources = func() ([]pulseSourceInfo, error) { return nil, nil }
+
+	got := make(chan []byte, 16)
+	s := NewSystemCapture()
+	if err := s.Start(func(b []byte) { got <- append([]byte(nil), b...) }); err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+
+	close(fake.release)
+	if _, ok := <-got; !ok {
+		t.Fatal("expected at least one chunk")
+	}
+	drainDone := make(chan struct{})
+	go func() {
+		defer close(drainDone)
+		for range got {
+		}
+	}()
+
+	if err := s.Stop(); err != nil {
+		t.Fatalf("Stop() error: %v", err)
+	}
+	close(got)
+	<-drainDone
+	select {
+	case <-fake.closed:
+	default:
+		t.Fatal("reader not closed on Stop")
 	}
 }
 
 func TestSystemCapture_Stop_Unstarted_Noop(t *testing.T) {
-	s := NewSystemCapture(nil)
+	s := NewSystemCapture()
 	if err := s.Stop(); err != nil {
 		t.Fatalf("Stop() on unstarted capture: %v", err)
-	}
-}
-
-func TestSystemCapture_Start_NilPortal_NamesScreencastPortal(t *testing.T) {
-	s := NewSystemCapture(nil)
-	err := s.Start(func([]byte) {})
-	if err == nil {
-		t.Fatal("Start() = nil, want honest error for a nil portal")
-	}
-	if !strings.Contains(err.Error(), "xdg ScreenCast portal") {
-		t.Errorf("Start() error = %q, want it to name the ScreenCast portal", err)
 	}
 }

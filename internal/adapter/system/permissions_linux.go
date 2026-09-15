@@ -3,7 +3,6 @@
 package system
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -11,21 +10,16 @@ import (
 	"interagent/internal/port"
 )
 
-// screenCast is the slice of the portal adapter the permissions need;
-// satisfied by *portal.ScreenCast (Available/Grant/Granted).
-type screenCast interface {
-	Available(ctx context.Context) bool
-	Grant(ctx context.Context) error
-	Granted() bool
-}
-
+// Permissions on Linux are honest but consent-free: a native (non-sandboxed)
+// app is not gated by the OS for microphone or system-audio capture (ADR-013
+// amendment), so statuses reflect transport reachability — not a consent claim
+// — and Request is a no-op for everything Linux can actually do.
 type Permissions struct {
-	portal   screenCast
 	micProbe func() error
 }
 
-func NewPermissions(portalAdapter screenCast, micProbe func() error) *Permissions {
-	return &Permissions{portal: portalAdapter, micProbe: micProbe}
+func NewPermissions(micProbe func() error) *Permissions {
+	return &Permissions{micProbe: micProbe}
 }
 
 func (p *Permissions) Status(perm port.Permission) (bool, error) {
@@ -36,10 +30,9 @@ func (p *Permissions) Status(perm port.Permission) (bool, error) {
 		}
 		return p.micProbe() == nil, nil
 	case port.PermissionScreenCapture:
-		if p.portal == nil {
-			return false, nil
-		}
-		return p.portal.Granted(), nil
+		// No OS gate for system audio on Linux; the capture layer reports
+		// transport errors honestly when Start actually runs.
+		return true, nil
 	case port.PermissionAccessibility:
 		return false, nil
 	default:
@@ -58,10 +51,7 @@ func (p *Permissions) Request(perm port.Permission) error {
 		}
 		return nil // nothing to consent for a native app; pulse is not permission-gated
 	case port.PermissionScreenCapture:
-		if p.portal == nil {
-			return errors.New("screen cast portal unavailable")
-		}
-		return p.portal.Grant(context.Background()) // the picker IS the grant dialog
+		return nil // no consent gate on Linux
 	case port.PermissionAccessibility:
 		return errors.New("accessibility permission is not supported on linux")
 	}
@@ -70,16 +60,11 @@ func (p *Permissions) Request(perm port.Permission) error {
 
 func (p *Permissions) OpenSettings(perm port.Permission) error {
 	switch perm {
-	case port.PermissionMicrophone:
+	case port.PermissionMicrophone, port.PermissionScreenCapture:
 		if path, err := exec.LookPath("pavucontrol"); err == nil {
 			return exec.Command(path).Start()
 		}
-		return errors.New("no microphone settings UI found — install pavucontrol")
-	case port.PermissionScreenCapture:
-		if p.portal == nil {
-			return errors.New("screen cast portal unavailable")
-		}
-		return p.portal.Grant(context.Background()) // the picker is the settings UI
+		return errors.New("no audio settings UI found — install pavucontrol")
 	case port.PermissionAccessibility:
 		return errors.New("no accessibility settings UI on linux")
 	}

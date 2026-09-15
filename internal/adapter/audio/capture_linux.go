@@ -10,9 +10,13 @@ import (
 	"strings"
 	"sync"
 
-	"interagent/internal/adapter/portal"
 	"interagent/internal/port"
 )
+
+// defaultSystemDevice is the pulse special source name for the default
+// output's monitor: it captures whatever the default sink plays (system
+// audio) and needs no portal consent for a native (non-sandboxed) app.
+const defaultSystemDevice = "@DEFAULT_SINK@.monitor"
 
 // pulseReader is the transport seam for the cgo pulse-simple reader
 // (capture_pulse_linux.go) or the honest !cgo stub (capture_pulse_fallback_linux.go).
@@ -119,16 +123,16 @@ func (m *MicrophoneCapture) Start(onChunk func([]byte)) error {
 	m.done = done
 	m.onChunk = onChunk
 	m.started = true
-	go m.pump(ctx, r, onChunk, done)
+	go pulsePump(ctx, r, onChunk, done)
 	return nil
 }
 
-// pump reads with the LOCAL reader reference it was handed, so it never reads
-// a field the caller might reassign (no data race). On cancellation or read
-// error it stops reading, closes the reader via defer, and only then closes
-// done — a joiner of <-done is guaranteed the reader was already freed.
+// pulsePump reads with the LOCAL reader reference it was handed, so it never
+// reads a field the caller might reassign (no data race). On cancellation or
+// read error it stops reading, closes the reader via defer, and only then
+// closes done — a joiner of <-done is guaranteed the reader was already freed.
 // Deferred order matters (LIFO): Close runs before close(done).
-func (m *MicrophoneCapture) pump(ctx context.Context, r pulseReader, onChunk func([]byte), done chan struct{}) {
+func pulsePump(ctx context.Context, r pulseReader, onChunk func([]byte), done chan struct{}) {
 	buf := make([]byte, pulseChunkBytes(CaptureSampleRate))
 	defer func() { close(done) }()
 	defer func() { _ = r.Close() }()
@@ -217,7 +221,7 @@ func (m *MicrophoneCapture) SetDevice(id string) error {
 		ctx, cancel := context.WithCancel(context.Background())
 		m.cancel = cancel
 		m.done = ndone
-		go m.pump(ctx, r, m.onChunk, ndone)
+		go pulsePump(ctx, r, m.onChunk, ndone)
 	}
 	m.device = id
 	return nil
@@ -234,50 +238,54 @@ func (m *MicrophoneCapture) Reachable() error {
 // pulse_other.go and is ignored by the darwin/windows permission constructors.
 func PulseReachable() error { return pulseReachable() }
 
+// SystemCapture pumps the default sink monitor (system audio) with the same
+// pulse-simple reader + owned-pump lifecycle as MicrophoneCapture. Native
+// (non-sandboxed) Linux apps need no consent to capture system audio (ADR-013
+// amendment), so Start never raises a picker — the only errors are honest
+// transport errors (no pulse daemon, unreachable).
 type SystemCapture struct {
-	mu       sync.Mutex
-	portal   *portal.ScreenCast
-	stream   *portal.Stream
-	consumer *pwConsumer
-	started  bool
+	mu      sync.Mutex
+	device  string
+	started bool
+	done    chan struct{} // closed by the pump goroutine when it fully exits
+	cancel  context.CancelFunc
+	onChunk func([]byte)
 }
 
-func NewSystemCapture(portalAdapter *portal.ScreenCast) *SystemCapture {
-	return &SystemCapture{portal: portalAdapter}
+func NewSystemCapture() *SystemCapture {
+	return &SystemCapture{device: defaultSystemDevice}
 }
 
 func (s *SystemCapture) Start(onChunk func([]byte)) error {
+	if openPulseReader == nil {
+		return pulseReaderErr()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
 		return nil
 	}
-	if s.portal == nil {
-		return errors.New("system sound capture requires the xdg ScreenCast portal")
+	device := s.device
+	if device == "" {
+		device = defaultSystemDevice
 	}
-	ctx := context.Background()
-	if !s.portal.Available(ctx) {
-		return errors.New("xdg desktop portal ScreenCast is not available — install xdg-desktop-portal and a backend (hyprland/gtk/wlr)")
-	}
-	st, err := s.portal.OpenStream(ctx)
+	r, err := openPulseReader(device, CaptureSampleRate, pulseChunkBytes(CaptureSampleRate))
 	if err != nil {
-		return err // includes honest "selection was cancelled" for a dismissed picker
+		return pulseHintErr(err)
 	}
-	// TakeFD transfers the fd to the PipeWire consumer; the portal Stream no
-	// longer owns it (Ruling 1 — Stream.Close must not double-close a
-	// PipeWire-owned descriptor).
-	fd, nodeID := st.TakeFD(), int(st.NodeID)
-	c, err := newPWConsumer(fd, nodeID, CaptureSampleRate, onChunk)
-	if err != nil {
-		_ = st.Close()
-		return err
-	}
-	s.stream = st
-	s.consumer = c
+	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.done = done
+	s.onChunk = onChunk
 	s.started = true
-	return c.Start()
+	go pulsePump(ctx, r, onChunk, done)
+	return nil
 }
 
+// Stop cancels the pump and JOINS it (<-done) before returning. Same
+// correctness note as MicrophoneCapture: on a live monitor the block lasts one
+// ~100 ms frame; Stop never frees the reader from the caller thread.
 func (s *SystemCapture) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -285,19 +293,77 @@ func (s *SystemCapture) Stop() error {
 		return nil
 	}
 	s.started = false
-	if s.consumer != nil {
-		_ = s.consumer.Close()
-		s.consumer = nil
+	if s.cancel != nil {
+		s.cancel()
 	}
-	if s.stream != nil {
-		_ = s.stream.Close()
-		s.stream = nil
-	}
+	done := s.done
+	s.cancel = nil
+	s.done = nil
+	<-done // pump closed the reader itself before closing done
 	return nil
 }
 
-// dev name comes from the PipeWire node info (pw_node_info), which the C state
-// does not yet decode (2026-09, Step-1 scope); Devices() reports no devices
-// until then — honest, not fabricated. SetDevice is therefore a no-op too.
-func (s *SystemCapture) Devices() ([]port.AudioDevice, error) { return nil, nil }
-func (s *SystemCapture) SetDevice(id string) error            { return nil }
+// Devices reports the pulse monitor sources only (the sinks' .monitor
+// outputs) — the honest set of system-audio targets. A missing pulse seam
+// yields an honest error, never an empty fabricated list.
+func (s *SystemCapture) Devices() ([]port.AudioDevice, error) {
+	if listPulseSources == nil {
+		return nil, pulseReaderErr()
+	}
+	srcs, err := listPulseSources()
+	if err != nil {
+		return nil, pulseHintErr(err)
+	}
+	out := make([]port.AudioDevice, 0, len(srcs))
+	for _, src := range srcs {
+		if !isMonitorSource(src.Name) {
+			continue
+		}
+		out = append(out, port.AudioDevice{ID: src.Name, Name: src.Description, IsDefault: src.Name == s.device})
+	}
+	return out, nil
+}
+
+// isMonitorSource reports whether a pulse source name is a sink monitor (the
+// pulse convention appends ".monitor" to the owning sink's name).
+func isMonitorSource(name string) bool {
+	return strings.HasSuffix(name, ".monitor")
+}
+
+func (s *SystemCapture) SetDevice(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.device == id {
+		return nil
+	}
+	if s.started {
+		// Same cancel+join as Stop(): the in-use reader is closed by the pump
+		// goroutine, never by us while it could be blocked in Read.
+		if s.cancel != nil {
+			s.cancel()
+		}
+		done := s.done
+		s.cancel = nil
+		s.done = nil
+		<-done
+		if openPulseReader == nil {
+			s.started = false
+			s.device = id
+			return nil
+		}
+		r, err := openPulseReader(id, CaptureSampleRate, pulseChunkBytes(CaptureSampleRate))
+		if err != nil {
+			// The old reader is already freed by the pump; stop cleanly rather
+			// than claim a live capture that has no reader.
+			s.started = false
+			return pulseHintErr(err)
+		}
+		ndone := make(chan struct{})
+		ctx, cancel := context.WithCancel(context.Background())
+		s.cancel = cancel
+		s.done = ndone
+		go pulsePump(ctx, r, s.onChunk, ndone)
+	}
+	s.device = id
+	return nil
+}

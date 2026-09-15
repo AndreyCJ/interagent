@@ -1,7 +1,7 @@
-# ADR-013: Linux system audio capture (pulse-simple + XDG portal ScreenCast) and permission mapping
+# ADR-013: Linux system audio capture (pulse default-sink monitor) and permission mapping
 
 **Date:** 07-09-2026
-**Status:** Proposed
+**Status:** Accepted (amended 2026-09-10 — system sound no longer uses the portal)
 **Related documents:** ADR-005 (second frozen cgo exception), ADR-007/008 (Linux notes),
 `docs/plans/step-1-linux-audio.md`
 
@@ -42,50 +42,50 @@ Cons: a bigger cgo surface; mic sources are still pulse-shaped; no portal consen
 
 ## Decision
 
-Option **B**. Mic = pulse default source via `libpulse-simple`; system sound = the XDG Desktop
-Portal ScreenCast audio stream (the portal picker is the consent), streamed over the session's
-PipeWire fd via a minimal cgo node bridge. **Deliberate: no default-sink (`.monitor`) fallback** —
-if the ScreenCast portal is missing, the app errors honestly instead of silently capturing the wrong
-source.
+Mic = pulse **default source** via `libpulse-simple`.
+
+### 2026-09-10 amendment: system sound = pulse default-sink monitor
+
+System sound is captured from the **default sink monitor** (`@DEFAULT_SINK@.monitor`) through the
+same `libpulse-simple` reader as the mic, plus a shared pump. A native (non-sandboxed) Linux app
+needs **no OS permission** to capture system audio, so `Listen` starts immediately — the previous
+XDG Desktop Portal ScreenCast flow (portal picker as consent, PipeWire fd bridge) has been **removed**:
+the portal picker is a screen/window-share dialog with no audio-only variant, so gating system audio
+on it was wrong. When a future step adds real screen capture (screenshots/OCR) on Linux, that step
+reintroduces a ScreenCast flow and its own consent story (ADR-002/ADR-008 notes).
+
+The `internal/adapter/portal` package and `capture_pipewire_linux.go` were deleted. `libpipewire-0.3-dev`
+is no longer a build dependency; `libpulse-dev` remains.
 
 ### Build layout (as shipped)
 
-- `internal/adapter/portal` — pure-Go godbus ScreenCast flow (CreateSession → SelectSources with
-  `persist_mode=2` → Start → OpenPipeWireRemote), yielding a `Stream` (PipeWire fd + node id +
-  restore token). No build tag; the fd close is platform-split in `sys_unix.go`/`sys_windows.go`.
-- `internal/adapter/audio/capture_pulse_linux.go` — libpulse-simple mic reader + source enumeration,
-  `//go:build linux && cgo`.
-- `internal/adapter/audio/capture_pipewire_linux.go` — minimal PipeWire node bridge
-  (`pw_context_connect_fd` on the portal fd, F32 48 kHz, down-mix to mono), `//go:build linux && cgo`.
-- Honest `linux && !cgo` fallbacks surface "built without cgo" errors; the pure-Go Linux logic
-  (device mapping, pulse-reachability probe) lives in `capture_linux.go` (`//go:build linux`).
-
-The permissions adapter consumes the portal behind an interface seam (`screenCast`:
-`Available`/`Grant`/`Granted`) plus a `func() error` mic probe — both wired in `app.go`, so
-`adapter/audio` and `adapter/system` never import each other.
+- `internal/adapter/audio/capture_pulse_linux.go` — `libpulse-simple` reader + source enumeration
+  (mic and system), `//go:build linux && cgo`.
+- `internal/adapter/audio/capture_linux.go` — pure-Go Linux logic: shared `pulsePump`, device
+  mapping (monitors for system, all sources for mic), pulse-reachability probe (`PulseReachable`),
+  honest `linux && !cgo` errors.
+- `app.go` wires `audio.NewSystemCapture()` and `system.NewPermissions(audio.PulseReachable)`.
 
 ## Permission mapping (never lies)
 
+Linux has no consent model for native apps; permissions are transport probes:
+
 - `microphone` → transport probe: a pulse daemon socket is reachable (`PulseReachable()`, pure-Go
-  stat on `$XDG_RUNTIME_DIR/pulse/native` / `/tmp/pulse/native`) — no consent gate for native apps.
-  The Camera portal flow (`org.freedesktop.portal.Camera`, for sandboxed apps) is intentionally
-  deferred to Step 2.
-- `screen-recording` → a ScreenCast session was completed this run, or a persisted restore token
-  exists (`portal.Granted()`). `Request`/`OpenSettings` run the picker flow (`portal.Grant()`); the
-  picker IS the grant dialog.
+  stat on `$XDG_RUNTIME_DIR/pulse/native` / `/tmp/pulse/native`).
+- `screen-recording` → **no OS gate on Linux**: `Status` is always `true`, `Request` is a no-op.
+  The capture layer reports transport errors honestly when `Start` actually runs (no silent fake
+  grants). On macOS this permission keeps its TCC meaning (ADR-008); `ensureListeningPermissions`
+  passes on Linux because no consent is required.
 - `accessibility` → always `false` (no Linux equivalent); `Request`/`OpenSettings` error honestly.
-
-## Restore-token persistence
-
-`$XDG_DATA_HOME/interagent/screencast-restore-token` (falls back to
-`~/.local/share/interagent/screencast-restore-token` when `XDG_DATA_HOME` is unset). Best-effort:
-backends that do not supply a token simply show the picker again on the next session start.
+- `OpenSettings` (mic + screen-recording) → opens `pavucontrol` (the audio mixer); `accessibility`
+  errors honestly. No permission-settings deep links exist on Linux.
 
 ## Trade-offs
 
 - Second frozen cgo exception; whisper.cpp remains the only STT cgo place (ADR-005 amendment).
-- Native Linux apps skip the sandbox consent model — the honest substitute is a transport probe, not
-  a consent claim.
-- A missing portal or pulse daemon yields actionable errors, never fake grants.
-- `internal/adapter/portal` is shared by the audio and permissions adapters with no
-  adapter↔adapter imports.
+- System audio is only as reliable as `pipewire-pulse`/`pulseaudio` (already required for the mic):
+  a missing daemon yields actionable errors, never fake grants.
+- macOS keeps TCC/SCK; Linux and macOS sharing `port.Permissions`/`port.AudioInput` means the
+  platform semantics diverge inside the adapters, not in the ports.
+- The restore-token file (`$XDG_DATA_HOME/interagent/screencast-restore-token`) is obsolete; stale
+  files are harmless and ignored.

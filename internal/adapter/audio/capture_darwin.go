@@ -35,7 +35,6 @@ import (
 	"sync"
 	"unsafe"
 
-	"interagent/internal/adapter/portal"
 	"interagent/internal/port"
 )
 
@@ -184,7 +183,7 @@ type SystemCapture struct {
 	stopErr  chan error
 }
 
-func NewSystemCapture(_ *portal.ScreenCast) *SystemCapture {
+func NewSystemCapture() *SystemCapture {
 	return &SystemCapture{stopErr: make(chan error, 1)}
 }
 

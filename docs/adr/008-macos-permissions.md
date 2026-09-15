@@ -98,6 +98,6 @@ The absence of any permission does not crash the app: the audio scenario require
 
 ---
 
-**Linux note:** permissions use the XDG Desktop Portal instead of TCC: `screen-recording` = a live or
-persisted ScreenCast session; `microphone` = transport probe (pulse reachability); `accessibility`
-is unsupported and never reported granted. Details: ADR-013.
+**Linux note (amended 2026-09-10):** native Linux apps have no consent model: `screen-recording` is
+reported as an unconditional no-gate (Status true, Request no-op), `microphone` is a transport probe
+(pulse reachability), `accessibility` is unsupported and never reported granted. Details: ADR-013.

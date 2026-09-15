@@ -3,25 +3,19 @@
 package audio
 
 import (
-	"context"
 	"os"
 	"testing"
 	"time"
-
-	"interagent/internal/adapter/portal"
 )
 
-// TestLiveSystemCapture exercises the full portal picker → PipeWire path.
-// Manual: INTERAGENT_PORTAL_INTEGRATION=1 go test ./internal/adapter/audio/ -run TestLiveSystemCapture -v
+// TestLiveSystemCapture exercises the pulse default-sink monitor path against
+// a live pipewire-pulse / pulseaudio daemon.
+// Manual: INTERAGENT_PULSE_INTEGRATION=1 go test ./internal/adapter/audio/ -run TestLiveSystemCapture -v
 func TestLiveSystemCapture(t *testing.T) {
-	if os.Getenv("INTERAGENT_PORTAL_INTEGRATION") == "" {
-		t.Skip("set INTERAGENT_PORTAL_INTEGRATION=1 to run the portal picker flow")
+	if os.Getenv("INTERAGENT_PULSE_INTEGRATION") == "" {
+		t.Skip("set INTERAGENT_PULSE_INTEGRATION=1 to run against a live pulse daemon")
 	}
-	p := portal.NewScreenCast()
-	if !p.Available(context.Background()) {
-		t.Skip("no ScreenCast portal available")
-	}
-	s := NewSystemCapture(p)
+	s := NewSystemCapture()
 	chunks := make(chan []byte, 8)
 	if err := s.Start(func(b []byte) {
 		select {

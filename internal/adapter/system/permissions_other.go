@@ -5,7 +5,6 @@ package system
 import (
 	"errors"
 
-	"interagent/internal/adapter/portal"
 	"interagent/internal/port"
 )
 
@@ -13,7 +12,7 @@ import (
 // (no TCC) and OpenSettings as a no-op, matching the previous stub behaviour.
 type Permissions struct{}
 
-func NewPermissions(_ *portal.ScreenCast, _ func() error) *Permissions {
+func NewPermissions(_ func() error) *Permissions {
 	return &Permissions{}
 }
 

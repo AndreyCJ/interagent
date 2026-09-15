@@ -138,7 +138,11 @@ task breakdown. This section records where reality diverged from the plan above.
   honest `!cgo` fallback, ~100 ms float32-mono-48k chunks.
 - System sound: XDG Desktop Portal ScreenCast over godbus (`internal/adapter/portal`,
   pure Go) -> PipeWire cgo audio capture (`capture_pipewire_linux.go`), fd ownership
-  transferred via `Stream.TakeFD()` (never double-closed).
+  transferred via `Stream.TakeFD()` (never double-closed). **Amended 2026-09-10:** the portal flow
+  was a screen/window-share picker with no audio-only variant and gated system audio on a consent
+  native apps do not need. It was replaced by the pulse default-sink monitor
+  (`@DEFAULT_SINK@.monitor`) via the same `libpulse-simple` seam; `internal/adapter/portal` and
+  `capture_pipewire_linux.go` are deleted (ADR-013 amendment).
 - Permissions (linux): `Status(accessibility)` is structurally incapable of `true`;
   mic == `PulseReachable()` probe; screen == portal `Granted()`/restore token.
   Per-platform `settingsURL` constants.
@@ -170,6 +174,7 @@ task breakdown. This section records where reality diverged from the plan above.
 
 ### Manual verification still outstanding
 
-- First interactive portal grant on the build machine (picker consent); then persist
-  the restore token for headless re-verification (plan Step 6).
+- ~~First interactive portal grant (picker consent)~~ — moot since 2026-09-10: system audio is the
+  pulse default-sink monitor (no consent). Live system capture over a running pipewire-pulse daemon
+  remains a manual check (`INTERAGENT_PULSE_INTEGRATION=1`, `TestLiveSystemCapture`).
 - Live pulse reader test needs the daemon's default source to be a working mic.
