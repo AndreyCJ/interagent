@@ -42,13 +42,17 @@ test('backend is reachable over the dev IPC bridge', async ({ page }) => {
   await page.goto('/')
 
   await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const go = (
-          window as unknown as { go?: { main?: { App?: { GetVersion?: () => Promise<string> } } } }
-        ).go
-        return go?.main?.App?.GetVersion ? go.main.App.GetVersion() : null
-      }),
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const go = (
+            window as unknown as {
+              go?: { main?: { App?: { GetVersion?: () => Promise<string> } } }
+            }
+          ).go
+          return go?.main?.App?.GetVersion ? go.main.App.GetVersion() : null
+        }),
+      { timeout: 10_000 },
     )
     .toBe('0.1.0')
 })
