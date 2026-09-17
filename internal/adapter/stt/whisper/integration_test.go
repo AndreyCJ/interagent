@@ -9,14 +9,49 @@ import (
 	"time"
 )
 
-// TestStream_RealModel runs only when INTERAGENT_WHISPER_MODEL and
-// INTERAGENT_VAD_MODEL are set (CI downloads ggml-tiny.bin + ggml-silero-v6.2.0.bin).
+func TestRealModelTestsRequireExplicitOptIn(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"integration", TestStream_RealModel_Integration},
+		{"long_form", TestStream_RealModel_LongForm_CommitsBeforeDone},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			for _, optIn := range []string{"", "0", "true"} {
+				t.Run("opt_in="+optIn, func(t *testing.T) {
+					t.Setenv("INTERAGENT_RUN_REAL_MODEL", optIn)
+					t.Setenv("INTERAGENT_WHISPER_MODEL", "unused-whisper.bin")
+					t.Setenv("INTERAGENT_VAD_MODEL", "unused-vad.bin")
+					var skipped bool
+					t.Run("real_model", func(t *testing.T) {
+						defer func() { skipped = t.Skipped() }()
+						test.run(t)
+					})
+					if !skipped {
+						t.Fatal("real-model test accessed fixtures without explicit opt-in")
+					}
+				})
+			}
+		})
+	}
+}
+
+func requireRealModel(t *testing.T) {
+	t.Helper()
+	if os.Getenv("INTERAGENT_RUN_REAL_MODEL") != "1" {
+		t.Skip("set INTERAGENT_RUN_REAL_MODEL=1 to run real-model integration tests")
+	}
+	if os.Getenv("INTERAGENT_WHISPER_MODEL") == "" || os.Getenv("INTERAGENT_VAD_MODEL") == "" {
+		t.Skip("set INTERAGENT_WHISPER_MODEL and INTERAGENT_VAD_MODEL to run")
+	}
+}
+
 func TestStream_RealModel_Integration(t *testing.T) {
 	modelPath := os.Getenv("INTERAGENT_WHISPER_MODEL")
 	vadPath := os.Getenv("INTERAGENT_VAD_MODEL")
-	if modelPath == "" || vadPath == "" {
-		t.Skip("set INTERAGENT_WHISPER_MODEL and INTERAGENT_VAD_MODEL to run")
-	}
+	requireRealModel(t)
 
 	wav := filepath.Join("testdata", "jfk.wav")
 	data, err := os.ReadFile(wav)
@@ -29,6 +64,7 @@ func TestStream_RealModel_Integration(t *testing.T) {
 	}
 
 	w := New(modelPath, vadPath, "auto")
+	t.Cleanup(func() { _ = w.Close() })
 	doneCh := make(chan struct {
 		text string
 		conf float64
@@ -127,9 +163,7 @@ func TestStream_RealModel_Integration(t *testing.T) {
 func TestStream_RealModel_LongForm_CommitsBeforeDone(t *testing.T) {
 	modelPath := os.Getenv("INTERAGENT_WHISPER_MODEL")
 	vadPath := os.Getenv("INTERAGENT_VAD_MODEL")
-	if modelPath == "" || vadPath == "" {
-		t.Skip("set INTERAGENT_WHISPER_MODEL and INTERAGENT_VAD_MODEL to run")
-	}
+	requireRealModel(t)
 
 	wav := filepath.Join("testdata", "jfk.wav")
 	data, err := os.ReadFile(wav)
@@ -162,6 +196,7 @@ func TestStream_RealModel_LongForm_CommitsBeforeDone(t *testing.T) {
 	}
 
 	w := New(modelPath, vadPath, "auto")
+	t.Cleanup(func() { _ = w.Close() })
 	streamErr := make(chan error, 1)
 	go func() {
 		streamErr <- w.Stream(16000, nil,
@@ -222,9 +257,11 @@ func TestStream_RealModel_LongForm_CommitsBeforeDone(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	mu.Lock()
+	_ = w.Close()
+	if err := <-streamErr; err != nil {
+		t.Fatalf("Stream() error: %v", err)
+	}
 	committedBeforeDone := !doneAt.IsZero() && !committedAt.IsZero() && committedAt.Before(doneAt)
-	mu.Unlock()
 	if len(committeds) == 0 {
 		t.Fatalf("long-form speech produced no onCommitted output (dones=%v)", dones)
 	}
@@ -243,9 +280,5 @@ func TestStream_RealModel_LongForm_CommitsBeforeDone(t *testing.T) {
 		if !strings.Contains(low, word) {
 			t.Errorf("long-form transcription lost %q: %s", word, all)
 		}
-	}
-	_ = w.Close()
-	if err := <-streamErr; err != nil {
-		t.Fatalf("Stream() error: %v", err)
 	}
 }
