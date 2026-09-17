@@ -179,6 +179,9 @@ jobs:
   e2e:
     name: E2E smoke (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      DEBUG: pw:webserver,pw:browser,pw:api
     strategy:
       fail-fast: false
       matrix:
@@ -246,8 +249,14 @@ jobs:
       - name: Run e2e smoke test
         working-directory: frontend
         run: |
+          set +e
           if [ "$RUNNER_OS" = "Linux" ]; then
-            xvfb-run -a pnpm exec playwright test
+            timeout 840 xvfb-run -a pnpm exec playwright test
           else
-            pnpm exec playwright test
+            timeout 840 pnpm exec playwright test
           fi
+          rc=$?
+          set -e
+          echo "=== leftover processes after playwright run (rc=$rc) ==="
+          ps -ef | grep -E 'wails|vite|interagent|chromium' | grep -v grep || true
+          exit $rc
