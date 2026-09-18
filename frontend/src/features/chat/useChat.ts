@@ -6,14 +6,35 @@ export interface ChatMessage {
   role: string
   text: string
   timestamp?: number
+  streaming?: boolean
 }
 
 export function useChat() {
   const messages = ref<ChatMessage[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const transcribing = ref(false)
+  const activeTranscripts = new Map<string, number>()
+  const activeSources = new Set<string>()
+
+  function transcriptRole(source: string): string {
+    return source === 'mic' ? 'user' : 'interviewer'
+  }
+
+  function updateStreaming(text: string, finalize: boolean): void {
+    const last = messages.value[messages.value.length - 1]
+    if (last && last.role === 'assistant' && last.streaming) {
+      last.text = text
+      if (finalize) last.streaming = false
+    } else {
+      const m: ChatMessage = { role: 'assistant', text }
+      if (!finalize) m.streaming = true
+      messages.value.push(m)
+    }
+  }
 
   async function load(): Promise<void> {
+    activeTranscripts.clear()
     try {
       const session = await GetSession()
       const history =
@@ -33,6 +54,8 @@ export function useChat() {
   async function send(text: string): Promise<void> {
     const trimmed = text.trim()
     if (!trimmed) return
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && last.streaming) last.streaming = false
     messages.value.push({ role: 'user', text: trimmed })
     try {
       await SendText(trimmed)
@@ -46,23 +69,71 @@ export function useChat() {
     error.value = null
   })
 
+  onEvent('llm:partial', payload => {
+    const p = payload as { text?: string }
+    if (p?.text) updateStreaming(p.text, false)
+  })
+
   onEvent('llm:response', payload => {
     const p = payload as { text?: string }
     if (p?.text) {
-      messages.value.push({ role: 'assistant', text: p.text })
+      updateStreaming(p.text, true)
+    } else {
+      const last = messages.value[messages.value.length - 1]
+      if (last?.streaming) last.streaming = false
     }
     loading.value = false
   })
 
   onEvent('llm:error', payload => {
     const p = payload as { error?: string }
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && last.streaming) last.streaming = false
     error.value = p?.error ?? 'LLM error'
     loading.value = false
   })
 
   onEvent('llm:cancelled', () => {
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && last.streaming) last.streaming = false
     loading.value = false
   })
 
-  return { messages, loading, error, load, send }
+  onEvent('transcription:committed', payload => {
+    const p = payload as { text?: string; source?: string }
+    if (!p?.text || !p.source) return
+    const index = activeTranscripts.get(p.source)
+    if (index !== undefined) {
+      messages.value[index].text = p.text
+      return
+    }
+    messages.value.push({ role: transcriptRole(p.source), text: p.text })
+    activeTranscripts.set(p.source, messages.value.length - 1)
+  })
+
+  onEvent('transcription:done', payload => {
+    const p = payload as { text?: string; source?: string }
+    if (!p?.text || !p.source) return
+    const index = activeTranscripts.get(p.source)
+    if (index !== undefined) {
+      messages.value[index].text = p.text
+      activeTranscripts.delete(p.source)
+      return
+    }
+    messages.value.push({ role: transcriptRole(p.source), text: p.text })
+  })
+
+  onEvent('stt:processing', payload => {
+    const p = payload as { source?: string }
+    if (p?.source) activeSources.add(p.source)
+    transcribing.value = activeSources.size > 0
+  })
+
+  onEvent('stt:idle', payload => {
+    const p = payload as { source?: string }
+    if (p?.source) activeSources.delete(p.source)
+    transcribing.value = activeSources.size > 0
+  })
+
+  return { messages, loading, error, transcribing, load, send }
 }

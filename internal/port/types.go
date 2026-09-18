@@ -23,11 +23,20 @@ type AgentConfig struct {
 	Temperature  float64
 }
 
+type STTModelStatus struct {
+	Installed bool
+	Path      string
+}
+
 type AppSettings struct {
 	Theme              string
 	Language           string
 	Shortcuts          []Shortcut
 	AutoStartListening bool
+	// SttModel is the whisper model size key: "tiny", "base" or "small".
+	SttModel string
+	// SttLanguage is the whisper language: "auto", "ru" or "en".
+	SttLanguage string
 }
 
 type Shortcut struct {

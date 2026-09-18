@@ -1,10 +1,3 @@
-# Development Process
-
-**Date:** 2026-07-30
-**Status:** Approved
-
----
-
 ## Stage cycle
 
 Each stage in [01-tz.md](01-tz.md) goes through the same cycle:
@@ -19,16 +12,13 @@ Each stage in [01-tz.md](01-tz.md) goes through the same cycle:
 
 A stage is considered done when:
 
-- [ ] Tests are written and green (`go test ./...`, `pnpm test`)
-- [ ] Lint and format are clean (`go vet ./...`, `go fmt ./...`, `pnpm lint`, `pnpm format:check`)
-- [ ] E2E check passed (`pnpm exec playwright test`), if the scenario covers the UI
-- [ ] No regressions in CI (GitHub Actions — `.github/workflows/test.yml`)
-- [ ] Your approval of the tests
+- [ ] Feature is implemented following rules;
+- [ ] Tests approved;
 
 ## Rules
 
-1. **Tests before code.** The essence of the tests is reviewed by the developer before they are written. Without green tests the implementation is not accepted.
-2. **One stage — one vertical slice.** The scenario works from the UI to the backend (or from the adapter to the UI).
+1. **Tests before code.** The essence of the tests is reviewed by the developer before they are written. Tests should not test every function there is, they should test critical parts of code in the first place.
+2. **One stage — one vertical slice.** Implement features in the vertical slices. The scenario works from the UI to the backend (or from the adapter to the UI).
 3. **Review is blocking.** Without your approval of the tests the next step does not start.
 4. **CI.** All tests run on every commit to `main` / every PR.
 5. **Changing the contract or architecture requires an ADR** (see `docs/adr/README.md`).

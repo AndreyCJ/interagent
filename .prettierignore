@@ -1,0 +1,6 @@
+# Local SDD artifacts (plans, ledgers, briefs, reviews)
+.superpowers/
+
+# Vendored upstream code — its markdown is not ours to reformat
+third_party/whisper.cpp/
+third_party/whisper-bindings/

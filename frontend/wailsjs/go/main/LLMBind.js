@@ -6,6 +6,10 @@ export function CancelResponse() {
   return window['go']['main']['LLMBind']['CancelResponse']();
 }
 
+export function GetOllamaModels() {
+  return window['go']['main']['LLMBind']['GetOllamaModels']();
+}
+
 export function SendText(arg1) {
   return window['go']['main']['LLMBind']['SendText'](arg1);
 }

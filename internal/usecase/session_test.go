@@ -37,6 +37,38 @@ func (m *mockSessionStore) DeleteSession(id string) error {
 	return nil
 }
 
+func TestSession_EnsureSession_CreatesWhenNone(t *testing.T) {
+	store := newMockSessionStore()
+	s := NewSession(store)
+	if err := s.EnsureSession(); err != nil {
+		t.Fatalf("EnsureSession() error: %v", err)
+	}
+	if s.currentID == "" {
+		t.Fatal("EnsureSession() did not set a current session")
+	}
+	if len(store.sessions) != 1 {
+		t.Errorf("sessions = %d, want 1", len(store.sessions))
+	}
+}
+
+func TestSession_EnsureSession_NoopWhenExists(t *testing.T) {
+	store := newMockSessionStore()
+	s := NewSession(store)
+	first, err := s.Create()
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	if err := s.EnsureSession(); err != nil {
+		t.Fatalf("EnsureSession() error: %v", err)
+	}
+	if s.currentID != first.ID {
+		t.Errorf("currentID = %q, want %q (must not create a new one)", s.currentID, first.ID)
+	}
+	if len(store.sessions) != 1 {
+		t.Errorf("sessions = %d, want 1", len(store.sessions))
+	}
+}
+
 func TestSession_Create(t *testing.T) {
 	store := newMockSessionStore()
 	s := NewSession(store)

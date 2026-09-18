@@ -1,0 +1,6 @@
+package port
+
+type Crypto interface {
+	Encrypt(plaintext string) (string, error)
+	Decrypt(ciphertext string) (string, error)
+}

@@ -1,7 +1,7 @@
 # ADR-007: Audio pipeline — sources, phrase end detection, generation cancellation
 
 **Date:** 2026-08-01
-**Status:** Proposed
+**Status:** Accepted
 **Related documents:** 01-tz.md §2.1/§3/§8 (stage 3), 02-nfr.md (NFR-01, NFR-02), 04-events.md, 05-architecture.md §3, ADR-001, ADR-005, ADR-008
 
 ---
@@ -60,7 +60,7 @@ The whisper.cpp Go binding (ADR-005) can detect phrase ends in stream mode (`whi
 **Pros:**
 
 - Already in the chosen STT (ADR-005), no extra libraries.
-- Partial text → `transcription:partial` event (already covered by 04-events).
+- Final phrase → `transcription:done` event (covered by 04-events). Final-only output since 2026-08-07: no partial events — the stream processes at phrase ends (silence gate).
 
 **Cons:**
 
@@ -112,14 +112,14 @@ Owner's decision (2026-08-01). When a new phrase completes during generation: `L
 
 - **System sound** (`interviewer`): capture via **ScreenCaptureKit**, source selection — the conference app/system audio. Requires screen recording permission (ADR-008).
 - **Microphone** (`user`): native macOS API.
-- **Phrase end:** endpoint detection in whisper.cpp (stream). Partial text is sent via `transcription:partial`, final — via `transcription:done` → pipeline start.
+- **Phrase end:** endpoint detection in whisper.cpp (stream). The stream processes only at phrase ends (RMS silence gate + cadence backstop); final text goes via `transcription:done` → pipeline start. No partial events.
 - **New input during generation:** **Cancel** the current generation (`LLM.Cancel()` → `llm:cancelled` event) and start generation on the fresh input.
 
 ### Audio pipeline (stage 3)
 
 ```
 AudioInput (SCK / mic) → STT whisper.cpp (endpoint detection)
-    → transcription:partial (throttled) / transcription:done
+    → transcription:done
     → SendText(text, role) → LLM (cancel on new input) → llm:response
 ```
 
@@ -135,3 +135,126 @@ AudioInput (SCK / mic) → STT whisper.cpp (endpoint detection)
 - Capturing system sound requires the "Screen Recording" permission — user denial handling in ADR-008.
 - Cancelling generation loses the previous request's work — acceptable for the interview UX.
 - Endpoint detection can make mistakes — recognition errors are handled per NFR-06 (the user sees a message and can retry).
+
+---
+
+**Linux note (amended 2026-09-10):** system sound is captured from the pulse default-sink monitor
+(`@DEFAULT_SINK@.monitor`) with no consent — a native Linux app is not permission-gated; the earlier XDG
+ScreenCast portal picker is gone. The mic uses the pulse default source. Otherwise the behaviour is
+unchanged: system sound → auto-answer, mic → history. Details: ADR-013.
+
+**Amendment (2026-09-09, committed-segment streaming):** long continuous speech previously lost the
+audio beyond the 5 s window front (single_recurrent guess dropped it) — the answer could miss the
+correction at the start of a long question / long user turn.
+
+- **Contract split.** `port.STT.Stream` grows a third callback between `onPartial` and `onDone`:
+  `onCommitted(text)`. `onPartial` stays unused (no partials, `nil` from the pipeline);
+  `onCommitted` fires mid-speech when whisper is confident a prefix of the window will not change;
+  `onDone` fires at a phrase end (silence gate), as before.
+- **Pipeline routing** (unchanged semantics, new channel): `onCommitted` appends to session history
+  only — `interviewer` for system sound, `user` for mic, **no LLM call, no `transcription:done`
+  event**. Only `onDone` triggers the auto-answer/`transcription:done` path. Final history for a
+  turn = committed words ∪ done (tail) words — each span once, **no duplication**: committed words
+  are trimmed out of the window before the finalize run sees the tail.
+- **Window never front-drops.** The rolling window is trimmed only at emission points. `maxWindow`
+  (10 s) is a **force-commit** cap, not a silent truncation: on overflow, whisper re-runs the whole
+  window and commits whatever it transcribes, then trims to the last spoken word.
+- **One word lookahead.** A run's words are compared (longest common prefix) with the previous run's
+  words (`SetTokenTimestamps(true)` + `NextSegment`, no SegmentCallback — a callback forces the
+  binding's `single_segment` mode). All-but-one stable words are committed; the single lookahead
+  word keeps finalize able to close the phrase cleanly. Whisper runs only at gate triggers (silence
+  finalize 400 ms, cadence backstop 3 s, catch-all 4 s, cap) — still no per-chunk re-transcription.
+- **Spans as history.** Word timestamps (`Token.Start/End`) give each word a position relative to
+  the window start; commits trim the window at exactly the last committed word's end, and the next
+  run's words are re-based so agreement is always position-correct.
+
+**Amendment (2026-09-11, committed words visible in the live chat):** committed mid-speech words were
+written to session history only — during a continuous turn the overlay chat showed nothing until a
+phrase ended (silence gate), which read to the user as "Listen is broken".
+
+- **New runtime event `transcription:committed`** `{text, source}` ("system" | "mic"), emitted from
+  `onCommitted` in parallel with the session-history append. The overlay chat appends an
+  `interviewer` (system) or `user` (mic) message on this event, so a long turn is visible live.
+- **Semantics unchanged otherwise:** `onCommitted` still never triggers the LLM and still emits no
+  `transcription:done`; only `onDone` finalizes the phrase (auto-answer + `transcription:done`).
+  The final history for a turn remains committed ∪ done — each span exactly once.
+
+**Amendment (2026-09-18, cumulative phrases in the chat/history/LLM):** a continuous turn rendered as
+one live bubble per committed span — the overlay, history, and the LLM prompt showed the same phrase
+chopped into separate mid-sentence messages (e.g. `the key point` / `you made is`), and a revised
+whisper boundary word could appear twice. The user-facing contract is now **one message per spoken
+phrase** that grows as the interviewer speaks:
+
+- **Pipeline accumulates.** `AudioPipeline` keeps a per-pipeline phrase buffer. `onCommitted` appends
+  the incoming span to the buffer and emits `transcription:committed` with the **cumulative** text
+  (the whole phrase so far). The overlay **updates the growing message in place** instead of appending
+  a new row.
+- **History is written once per phrase.** `onCommitted` no longer touches session history. On `onDone`
+  the tail is appended to the buffer and the **complete phrase** is committed: `transcription:done`
+  carries the full text, the mic path persists the full phrase as one `user` message, and the system
+  path passes the full phrase to the LLM as the final `interviewer` message (which is persisted once
+  by `LLM.Generate`, as before). The buffer then resets — the next spoken phrase starts a fresh
+  message.
+- **Boundary overlap guard.** If the finalize tail begins with an exact verbatim repeat of the
+  buffer's end (whisper re-transcribes a boundary word after a revision), only that repeated prefix is
+  trimmed before the tail is appended. Repeats that live entirely inside a single span are preserved,
+  so deliberate emphatic repeats are not touched.
+- **LLM input is the full phrase.** Auto-answer's `LLM.Generate` receives the complete phrase (not the
+  tail), so the question is never truncated to its last fragment.
+
+**Amendment (2026-09-18, auto-answer fires at the completed question):** a rambling interviewer who
+asks a question and keeps talking defeated NFR-01's 2 s target — the answer started only after the
+_phrase_ ended (silence gate). Auto-answer now triggers **mid-phrase** as soon as the phrase's last
+completed sentence is a question:
+
+- **`?`-trigger on `onCommitted`.** For system sound only, when the cumulative phrase's final
+  `.`/`!`/`?` in the trimmed text is `?`, the pipeline persists one `interviewer` message (the phrase
+  so far), cancels any in-flight generation, and starts the answer **immediately** — it does not wait
+  for `onDone`. The mic path never auto-answers (unchanged).
+- **At most one answer per phrase.** A new per-phrase `answered` flag (reset at `onDone`) suppresses
+  re-trggering; the `onDone` fallback answers only when `answered` is false. Consequences: trailing
+  chatter after a `?` does not get a second answer, and a second question inside the same spoken
+  phrase is not answered separately — acceptable for v1, a sentence splitter would be the refinement.
+- **`LLM.AnswerLast` replaces `Generate` in the auto-answer path.** The pipeline persists the question
+  before the call, so `AnswerLast` never appends the question itself; it feeds the engine
+  `history[:len-1]` + the question as the input text (the trailing question is not in the prompt
+  twice). Streaming/cancel/idempotency behaviour is identical to `Generate` — both share one
+  `respond(input, role, appendQuestion bool)` core. Statements still auto-answer at `onDone`
+  (unchanged semantics).
+- **Mid-phrase language is best-effort.** The `?`-trigger uses the language cached from the most
+  recent finalized phrase; the detected language of a phrase is only known at `onDone`.
+
+**Amendment (2026-09-18, exactly-once emission under degenerate timestamps):** the "no duplication"
+guarantee broke on the real device: whisper's VAD time-mapping can **underreport** token `End`
+timestamps (the mirror of the documented overshoot next to it — both are `orig_end` snapping to the
+VAD chunk grid). A commit trims the window at the last committed word's `End`; an underreport
+collapses the trim to a no-op, so the already-committed audio stays at the window front and the whole
+phrase accumulated verbatim repeats (re-commits, and `onDone` re-emitting the full window) — reported
+as the same sentence appearing two or three times inside one cumulative interviewer message.
+
+- **Minimal window advance.** The commit trim point is floored at `minWord` per committed word, so the
+  window always advances past committed audio even when every token `End` collapses to ~0. Calibrated
+  to a realistic per-word extent at the model rate (300 ms × 16 kHz): large enough to make a real
+  collapse land below the floor and latch `laggy`, small enough never to cut ahead of fast genuine
+  speech.
+- **Replay strip, gated on a sticky `laggy` flag.** A phrase whose committed block's `End` fell below
+  the floor is flagged; thereafter each emission point (`onCommitted` and `onDone`) strips the longest
+  prefix that re-transcribes words already handed out (`emitted`), matched **case-insensitively**
+  (whisper re-capitalizes a boundary word at segment starts — committed `и`, re-emitted `И`).
+  Healthy-timestamp phrases never run the strip, so genuinely emphatic repeats are preserved (guarded
+  by test).
+- **Phrase-end window reset.** On a `laggy` finalize the leftover window is dropped outright — its
+  content was emitted (committed ∪ done) and the timestamps cannot give a trustworthy boundary, so
+  keeping it would let the next phrase re-transcribe and re-emit it again.
+- **Pipeline boundary trim is case-insensitive.** `trimOverlap` (the boundary-repeat guard in
+  `onDone`) compares words with `EqualFold`: a collapsed-but-non-laggy phrase re-emits the last
+  committed word capitalized ("…фракций, и" + tail "И у их речей…"), which would otherwise read the
+  same word twice inside one message.
+- **Superset-replace guard.** `joinPhrase` replaces the accumulated buffer when an incoming span
+  contains the whole buffer as a contiguous case-insensitive subsequence and is strictly longer — a
+  cleaner full re-transcription supersedes polluted fragments instead of stacking on top of them.
+- **Verification.** `INTERAGENT_STT_DEBUG_COMMITS=1` logs every Process/commit/finalize decision to
+  `/tmp/interagent-stt-commits.log` (alongside `INTERAGENT_STT_DEBUG_RMS`) for on-device confirmation
+  of exactly-once emission. Reproduced headlessly with a file-replay harness
+  (`TestReplaySystemTranscription`, `INTERAGENT_REPLAY_FILE` of float32 mono 48 kHz PCM) against the
+  real clip.
