@@ -209,7 +209,7 @@ func decodeWords(window []float32) []string {
 func startStream(t *testing.T, w *Whisper, onPartial func(string), onCommitted func(string), onDone func(string, float64, string)) chan error {
 	t.Helper()
 	done := make(chan error, 1)
-	go func() { done <- w.Stream(48000, onPartial, onCommitted, onDone) }()
+	go func() { done <- w.Stream(48000, onPartial, onCommitted, onDone, nil) }()
 	time.Sleep(20 * time.Millisecond) // let Stream reach the ingest loop
 	return done
 }
@@ -272,7 +272,7 @@ func TestStream_LoadError(t *testing.T) {
 	w := newWithOpener("model.bin", "vad.onnx", "auto", func(string) (sttModel, error) {
 		return nil, errors.New("cannot open model")
 	})
-	if err := w.Stream(48000, nil, nil, nil); err == nil {
+	if err := w.Stream(48000, nil, nil, nil, nil); err == nil {
 		t.Fatal("Stream() should return model load error")
 	}
 }
@@ -503,14 +503,100 @@ func TestStream_IdleSilence_NoProcessing(t *testing.T) {
 	}
 }
 
+func ampChunk(samples int, amp float32) []byte {
+	in := make([]float32, samples)
+	for i := range in {
+		in[i] = amp
+	}
+	return float32ToBytes(in)
+}
+
+// TestStream_NoiseFloor_PauseStillFinalizes is the regression for the reported
+// giant-message bug: a phrase spoken over ambient noise (amp 0.02) and ended
+// with a pause back DOWN to that same ambient must finalize via onDone. The old
+// gate used an absolute 0.005 threshold, so the ambient kept the tail "speaking"
+// forever, onDone never fired, and the phrase buffer grew without bound. The
+// adaptive gate's pause threshold (≈1.3× ambient) clears the ambient, so the
+// pause registers and the phrase ends. The pre-word ambient runs long enough
+// for the idle floor to settle on it (cold-start recovery + 2.5/s rise), which
+// is what the gate needs to place the pause gate above the ambient.
+func TestStream_NoiseFloor_PauseStillFinalizes(t *testing.T) {
+	ctx := &fakeContext{detected: "en"}
+	ctx.processFn = func(window []float32, _ int) []whispercpp.Segment { return wordSegments(window) }
+	w := newFakeWhisper(t, &fakeModel{ctx: ctx})
+	col := &emissionCollector{}
+	done := startStream(t, w, nil, col.onCommitted(), col.onDone())
+
+	ambient := ampChunk(48000, 0.02)
+	for i := 0; i < 6; i++ {
+		if err := w.Feed(ambient); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	feedWord(t, w, 48000, 1)
+	time.Sleep(250 * time.Millisecond)
+	for i := 0; i < 4; i++ {
+		time.Sleep(200 * time.Millisecond)
+		if err := w.Feed(ambient); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+
+	if ctx.processes != 1 {
+		t.Errorf("Process called %d times, want exactly 1 (the finalize)", ctx.processes)
+	}
+	if len(col.dones) != 1 {
+		t.Fatalf("onDone = %v, want the phrase to finalize on a pause to ambient noise", col.dones)
+	}
+	if col.dones[0] != "word1" {
+		t.Errorf("onDone = %q, want %q", col.dones[0], "word1")
+	}
+}
+
+// TestStream_AmbientNoiseOnly_NoFinalize: steady ambient at 0.02 is below the
+// enter gate (≈1.6× floor) so it must never be read as speech — no onDone and
+// no commits from a quiet room.
+func TestStream_AmbientNoiseOnly_NoFinalize(t *testing.T) {
+	ctx := &fakeContext{}
+	ctx.processFn = func(window []float32, _ int) []whispercpp.Segment { return wordSegments(window) }
+	w := newFakeWhisper(t, &fakeModel{ctx: ctx})
+	col := &emissionCollector{}
+	done := startStream(t, w, nil, col.onCommitted(), col.onDone())
+
+	ambient := ampChunk(48000, 0.02)
+	for i := 0; i < 3; i++ {
+		time.Sleep(250 * time.Millisecond)
+		if err := w.Feed(ambient); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if len(col.dones) != 0 {
+		t.Errorf("ambient-only audio produced onDone: %v", col.dones)
+	}
+	if len(col.commits) != 0 {
+		t.Errorf("ambient-only audio produced onCommitted: %v", col.commits)
+	}
+}
+
 func TestStream_BelowThresholdAudio_CatchAllFires(t *testing.T) {
 	ctx := &fakeContext{}
 	w := newFakeWhisper(t, &fakeModel{ctx: ctx})
 	ctx.processFn = func(window []float32, _ int) []whispercpp.Segment { return wordSegments(window) }
 	done := startStream(t, w, nil, nil, nil)
 
-	// Amplitude 0.001 is below gateThreshold (0.005) — the tail stays "quiet",
-	// but the window has non-zero energy, so the catch-all must still fire.
+	// Amplitude 0.001 is below absFloor (0.005) — the tail never clears the
+	// adaptive speech gate, so speaking stays false. But the window has
+	// non-zero energy, so the catch-all (maxInterval) must still fire.
 	low := float32ToBytes(func() []float32 {
 		in := make([]float32, 48000)
 		for i := range in {
@@ -553,7 +639,7 @@ func TestStream_RevisedTail_FinalizedAfterCommit(t *testing.T) {
 		}
 	}
 	col := &emissionCollector{}
-	st := newStreamState(ctx, modelSampleRate, nil, col.onCommitted(), col.onDone())
+	st := newStreamState(ctx, modelSampleRate, nil, col.onCommitted(), col.onDone(), nil)
 	st.params = streamDefaults
 	st.window = audioFor("word1 word2 word3")
 
@@ -590,7 +676,7 @@ func TestStream_RevisedTail_FinalizedAfterCommit(t *testing.T) {
 func TestStream_CommitsWordEndBeyondWindow(t *testing.T) {
 	ctx := &fakeContext{}
 	overshootSamples := 160 // the real crash overshot a 10.05s window by 160 samples
-	st := newStreamState(ctx, modelSampleRate, nil, nil, nil)
+	st := newStreamState(ctx, modelSampleRate, nil, nil, nil, nil)
 	st.params = streamDefaults
 	st.params.maxWindow = 2 * time.Second
 	st.window = audioFor("word1 word2 word3") // 3 model-seconds of speech
@@ -615,11 +701,165 @@ func TestStream_CommitsWordEndBeyondWindow(t *testing.T) {
 	}
 }
 
+// degenerateSegments mirrors manualSegments but snaps every token's start/end
+// to the window origin — modeling whisper's VAD time-mapping under-report, the
+// mirror image of the overshoot clamp (TestStream_CommitsWordEndBeyondWindow):
+// org_end collapses toward the window front, so the commit trim degenerates.
+func degenerateSegments(window []float32, text string) []whispercpp.Segment {
+	segs := manualSegments(window, text, nil)
+	for si := range segs {
+		for ti := range segs[si].Tokens {
+			segs[si].Tokens[ti].Start = 0
+			segs[si].Tokens[ti].End = 0
+		}
+	}
+	return segs
+}
+
+// TestStream_DegenerateTimestamps_ExactlyOnce is the regression for the
+// reported duplicate-sentence bug: whisper's VAD path can UNDERREPORT token
+// end timestamps, collapsing the commit trim to a no-op. The already-committed
+// audio stays at the window front, and the finalize (or a later agreeing run)
+// re-emits it verbatim — the same sentence appearing two or three times inside
+// one interviewer message. The stream must emit every word of the turn exactly
+// once across commits and done, regardless of how degenerate the timestamps are.
+func TestStream_DegenerateTimestamps_ExactlyOnce(t *testing.T) {
+	ctx := &fakeContext{detected: "en"}
+	text := "word1 word2 word3 word4 word5"
+	ctx.processFn = func(window []float32, _ int) []whispercpp.Segment {
+		return degenerateSegments(window, text)
+	}
+	col := &emissionCollector{}
+	st := newStreamState(ctx, modelSampleRate, nil, col.onCommitted(), col.onDone(), nil)
+	st.params = streamDefaults
+	st.window = audioFor(text)
+
+	for i := 0; i < 2; i++ {
+		if err := st.process(time.Now(), trigCommit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// maxWindow cap force-commit: the whole (degraded) transcription is emitted.
+	if err := st.process(time.Now(), trigCap); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.process(time.Now(), trigFinalize); err != nil {
+		t.Fatal(err)
+	}
+
+	reassembled := strings.Fields(strings.Join(append(append([]string{}, col.commits...), col.dones...), " "))
+	if len(reassembled) != 5 {
+		t.Fatalf("turn reassembled to %d words, want exactly 5: %v (commits=%v dones=%v)", len(reassembled), reassembled, col.commits, col.dones)
+	}
+	for i, wd := range reassembled {
+		if wd != fmt.Sprintf("word%d", i+1) {
+			t.Fatalf("turn reassembly broken at %d: %q (commits=%v dones=%v)", i, wd, col.commits, col.dones)
+		}
+	}
+}
+
+// TestStream_BoundaryCollapse_TailStripped pins the real-audio repro (Russian
+// interview clip): timestamps are mostly healthy and the phrase commits via
+// agreement, but the last committed word's end underreports to far below a
+// realistic per-word extent (collapse, not full degeneration). The finalize
+// then re-transcribes the boundary word — capitalized, "И" after committed
+// "и" — and the phrase reads the same word twice. The floor must flag laggy so
+// the replay-strip runs, and the strip must match case-insensitively.
+func TestStream_BoundaryCollapse_TailStripped(t *testing.T) {
+	ctx := &fakeContext{detected: "ru"}
+	ctx.processFn = func(window []float32, seq int) []whispercpp.Segment {
+		switch seq {
+		case 0:
+			// First pass: no agreement yet, nothing commits.
+			return manualSegments(window, "word1 word2 word3 word4", nil)
+		case 1:
+			// Agreeing pass: commit word1..word3, but word3.end collapses to
+			// ~500ms — well inside the region an 80ms-per-word floor would
+			// accept, yet far below the true ~1s extent of three words.
+			segs := manualSegments(window, "word1 word2 word3 word4", nil)
+			toks := segs[0].Tokens
+			toks[2].End = time.Duration(500) * time.Millisecond
+			segs[0].Tokens = toks
+			return segs
+		default:
+			// Finalize: the trimmed window re-transcribes the boundary word,
+			// capitalized and parked at the window front (collapsed start).
+			segs := manualSegments(window, "Word3 word4 word5", nil)
+			toks := segs[0].Tokens
+			toks[0].Start = 0
+			toks[0].End = time.Duration(80) * time.Millisecond
+			segs[0].Tokens = toks
+			return segs
+		}
+	}
+	col := &emissionCollector{}
+	st := newStreamState(ctx, modelSampleRate, nil, col.onCommitted(), col.onDone(), nil)
+	st.params = streamDefaults
+	st.window = audioFor("word1 word2 word3 word4 word5")
+
+	if err := st.process(time.Now(), trigCommit); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.process(time.Now(), trigCommit); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.process(time.Now(), trigFinalize); err != nil {
+		t.Fatal(err)
+	}
+
+	reassembled := strings.Fields(strings.ToLower(strings.Join(append(append([]string{}, col.commits...), col.dones...), " ")))
+	want := []string{"word1", "word2", "word3", "word4", "word5"}
+	if len(reassembled) != len(want) {
+		t.Fatalf("turn reassembled to %d words, want exactly %d: %v (commits=%v dones=%v)",
+			len(reassembled), len(want), reassembled, col.commits, col.dones)
+	}
+	for i, wd := range reassembled {
+		if wd != want[i] {
+			t.Fatalf("reassembly broken at %d: got %q want %q (commits=%v dones=%v)",
+				i, wd, want[i], col.commits, col.dones)
+		}
+	}
+}
+
+// TestStream_GenuineRepeat_Preserved guards the replay-strip behind
+// degenerate-timestamp detection: when timestamps are healthy, an emphatic
+// genuine repetition ("word3 word3") must survive commits and done untouched —
+// the strip must never run unless the phrase is flagged as lagged.
+func TestStream_GenuineRepeat_Preserved(t *testing.T) {
+	ctx := &fakeContext{detected: "en"}
+	ctx.processFn = func(window []float32, _ int) []whispercpp.Segment { return wordSegments(window) }
+	col := &emissionCollector{}
+	st := newStreamState(ctx, modelSampleRate, nil, col.onCommitted(), col.onDone(), nil)
+	st.params = streamDefaults
+	st.window = audioFor("word1 word2 word3 word3 word4 word5 word6")
+
+	if err := st.process(time.Now(), trigCommit); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.process(time.Now(), trigCommit); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.process(time.Now(), trigFinalize); err != nil {
+		t.Fatal(err)
+	}
+
+	reassembled := strings.Fields(strings.Join(append(append([]string{}, col.commits...), col.dones...), " "))
+	want := []string{"word1", "word2", "word3", "word3", "word4", "word5", "word6"}
+	if len(reassembled) != len(want) {
+		t.Fatalf("reassembled turn = %v, want %v (commits=%v dones=%v)", reassembled, want, col.commits, col.dones)
+	}
+	for i, wd := range reassembled {
+		if wd != want[i] {
+			t.Fatalf("turn reassembly broken at %d: got %q want %q (commits=%v dones=%v)", i, wd, want[i], col.commits, col.dones)
+		}
+	}
+}
+
 func TestStream_EmptyPhrase_NoDone(t *testing.T) {
 	ctx := &fakeContext{}
 	ctx.processFn = func(window []float32, _ int) []whispercpp.Segment { return wordSegments(window) }
 	col := &emissionCollector{}
-	st := newStreamState(ctx, modelSampleRate, nil, col.onCommitted(), col.onDone())
+	st := newStreamState(ctx, modelSampleRate, nil, col.onCommitted(), col.onDone(), nil)
 	st.params = streamDefaults
 	st.window = make([]float32, modelSampleRate) // a second of silence → no words
 

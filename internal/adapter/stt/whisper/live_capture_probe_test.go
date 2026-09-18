@@ -45,7 +45,7 @@ func TestLiveCaptureOfflineProbe(t *testing.T) {
 	go func() {
 		streamErr <- w.Stream(16000, nil,
 			func(text string) { committed = append(committed, text) },
-			func(text string, _ float64, _ string) { done = append(done, text) })
+			func(text string, _ float64, _ string) { done = append(done, text) }, nil)
 	}()
 
 	frame := float32ToBytes(rs)

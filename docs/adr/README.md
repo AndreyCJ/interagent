@@ -17,6 +17,7 @@
 | ADR-012 | System sound: SCContentFilter scope + dev signing | Accepted | 2026-08-07 | SCK filter includes all apps (reliable buffers). Dev builds need a stable signing identity (SCError 1003 on Tahoe for unsigned binaries).    |
 | ADR-013 | Linux audio capture + permissions                 | Accepted | 2026-09-07 | pulse-simple mic + system sound via the default-sink monitor (no consent); honest transport-probe permissions. Amends ADR-005 cgo freeze.    |
 | ADR-014 | STT models and GPU backend                        | Proposed | 2026-09-15 | Default model `large-v3`; voxtype model reuse (checksum-gated adoption) before download; optional Vulkan GPU backend auto-detected at build. |
+| ADR-015 | Adaptive STT silence gate                         | Proposed | 2026-09-18 | Noise-floor-tracking entered/pause hysteresis + cold recovery for flat ambient; floor frozen during speech; debug RMS calibration log.       |
 
 ## How to add an ADR
 

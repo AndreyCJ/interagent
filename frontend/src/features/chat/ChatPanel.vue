@@ -4,7 +4,7 @@ import { useChat } from './useChat'
 import { useAudio } from '../audio/useAudio'
 import TextInput from '../overlay/TextInput.vue'
 
-const { messages, loading, error, load, send } = useChat()
+const { messages, loading, error, transcribing, load, send } = useChat()
 const { isListening } = useAudio()
 
 function scrollToBottom() {
@@ -24,8 +24,9 @@ onMounted(() => {
 
 <template>
   <div class="chat-panel">
-    <div v-if="isListening" class="status-bar">
-      <span class="listening-indicator">● Listening...</span>
+    <div v-if="isListening || transcribing" class="status-bar">
+      <span v-if="isListening" class="listening-indicator">● Listening...</span>
+      <span v-if="transcribing" class="transcribing-indicator">⟳ transcribing...</span>
     </div>
     <div class="history">
       <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
@@ -63,6 +64,11 @@ onMounted(() => {
 }
 .listening-indicator {
   animation: pulse 1.5s infinite;
+}
+.transcribing-indicator {
+  margin-left: 10px;
+  color: #93c5fd;
+  animation: pulse 0.9s infinite;
 }
 @keyframes pulse {
   0%,

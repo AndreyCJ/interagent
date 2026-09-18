@@ -45,6 +45,18 @@ func NewLLM(events port.Events, writer sessionWriter, reader sessionReader, agen
 }
 
 func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
+	return l.respond(input, role, true)
+}
+
+// AnswerLast answers the question the caller persisted as the last history
+// message (once per phrase, ADR-007): it never appends the question itself,
+// and the engine prompt sees history[:len-1] + the question as input.Text —
+// the trailing question is not fed to the engine twice.
+func (l *LLM) AnswerLast(input port.LLMInput, role string) (string, error) {
+	return l.respond(input, role, false)
+}
+
+func (l *LLM) respond(input port.LLMInput, role string, appendQuestion bool) (string, error) {
 	if input.Text == "" {
 		return "", errors.New("empty text")
 	}
@@ -87,11 +99,15 @@ func (l *LLM) Generate(input port.LLMInput, role string) (string, error) {
 		}
 	}
 
-	if l.writer != nil {
-		if err := l.writer.AppendMessage(role, input.Text); err != nil {
-			_ = l.events.Emit("llm:error", map[string]string{"error": err.Error()})
-			return "", err
+	if appendQuestion {
+		if l.writer != nil {
+			if err := l.writer.AppendMessage(role, input.Text); err != nil {
+				_ = l.events.Emit("llm:error", map[string]string{"error": err.Error()})
+				return "", err
+			}
 		}
+	} else if len(history) > 0 {
+		history = history[:len(history)-1]
 	}
 	if err := l.events.Emit("llm:started", struct{}{}); err != nil {
 		return "", err

@@ -438,6 +438,71 @@ func (e *concurrentEvents) Emit(name string, payload any) error {
 	return nil
 }
 
+func TestLLM_AnswerLast_StripsQuestion_NoQuestionAppend(t *testing.T) {
+	engine := &mockLLM{response: "My take is simple"}
+	events := newMockEvents()
+	session := &mockSessionWriter{}
+	hist := []port.Message{
+		{Role: "user", Text: "Tell me about the gate"},
+		{Role: "interviewer", Text: "Why do they matter?"},
+	}
+	reader := mockSessionReader{session: port.Session{ID: "s1", ChatHistory: hist}}
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	llm := NewLLM(events, session, reader, agent, mockFactory{engine: engine})
+
+	answer, err := llm.AnswerLast(port.LLMInput{Text: "Why do they matter?"}, "interviewer")
+	if err != nil {
+		t.Fatalf("AnswerLast() error: %v", err)
+	}
+	if answer != "My take is simple" {
+		t.Errorf("answer = %q, want My take is simple", answer)
+	}
+	if len(engine.gotHist) != 1 || engine.gotHist[0].Text != "Tell me about the gate" {
+		t.Errorf("engine history = %+v, want the trailing question stripped", engine.gotHist)
+	}
+	if engine.gotInput.Text != "Why do they matter?" {
+		t.Errorf("engine input = %q, want the question as input text", engine.gotInput.Text)
+	}
+	if len(session.roles) != 1 || session.roles[0] != "assistant" || session.texts[0] != "My take is simple" {
+		t.Errorf("session = (%v, %v), want [assistant] only — the question is written by the caller", session.roles, session.texts)
+	}
+	if events.count("llm:started") != 1 || events.count("llm:partial") != 1 || events.count("llm:response") != 1 {
+		t.Errorf("events started=%d partial=%d response=%d, want 1 each", events.count("llm:started"), events.count("llm:partial"), events.count("llm:response"))
+	}
+}
+
+func TestLLM_AnswerLast_Language_AppendsInstruction(t *testing.T) {
+	engine := &mockLLM{response: "réponse"}
+	agent := mockAgentProvider{cfg: port.AgentConfig{ID: "a1", Provider: "local"}}
+	hist := []port.Message{{Role: "interviewer", Text: "Question?"}}
+	reader := mockSessionReader{session: port.Session{ID: "s1", ChatHistory: hist}}
+	llm := NewLLM(newMockEvents(), &mockSessionWriter{}, reader, agent, mockFactory{engine: engine})
+
+	if _, err := llm.AnswerLast(port.LLMInput{Text: "Question?", Language: "fr"}, "interviewer"); err != nil {
+		t.Fatalf("AnswerLast() error: %v", err)
+	}
+	if got := engine.gotInput.Text; got != "Question?\nAnswer in the speaker's language (detected: fr)." {
+		t.Errorf("engine text = %q", got)
+	}
+	if len(engine.gotHist) != 0 {
+		t.Errorf("engine history = %+v, want empty (only the question stripped)", engine.gotHist)
+	}
+}
+
+func TestLLM_AnswerLast_EmptyText_ReturnsError(t *testing.T) {
+	llm := newTestLLM(nil, &mockSessionWriter{}, mockSessionReader{}, mockAgentProvider{})
+	if _, err := llm.AnswerLast(port.LLMInput{}, "interviewer"); err == nil {
+		t.Error("AnswerLast with empty text should return error")
+	}
+}
+
+func TestLLM_AnswerLast_InvalidRole_ReturnsError(t *testing.T) {
+	llm := newTestLLM(nil, &mockSessionWriter{}, mockSessionReader{}, mockAgentProvider{})
+	if _, err := llm.AnswerLast(port.LLMInput{Text: "q"}, "system"); err == nil {
+		t.Error("AnswerLast with invalid role should return error")
+	}
+}
+
 func TestLLM_Cancel_ConcurrentWithGenerate_Race(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 1000; i++ {

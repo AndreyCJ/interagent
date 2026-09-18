@@ -39,6 +39,11 @@ type STT interface {
 	// uncommitted tail of the phrase — the span NOT already emitted via
 	// onCommitted — plus its confidence and detected language. It drives
 	// auto-answer and cancel-on-new-input exactly as today (ADR-007).
-	Stream(sampleRate int, onPartial func(string), onCommitted func(string), onDone func(text string, confidence float64, language string)) error
+	//
+	// onStatus reports whether whisper is currently processing the window
+	// (busy=true at the start of a Process run, busy=false when it returns) —
+	// the frontend surfaces it as a transcription loading indicator. Optional;
+	// nil-safe.
+	Stream(sampleRate int, onPartial func(string), onCommitted func(string), onDone func(text string, confidence float64, language string), onStatus func(bool)) error
 	Close() error
 }

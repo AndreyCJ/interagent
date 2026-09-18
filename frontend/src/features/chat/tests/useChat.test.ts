@@ -206,6 +206,84 @@ describe('useChat', () => {
     expect(messages.value[0].text).toBe('the key')
   })
 
+  it('grows the interviewer message in place on cumulative transcription:committed', () => {
+    const { messages } = useChat()
+    fire('transcription:committed', { text: 'the key', source: 'system' })
+    fire('transcription:committed', { text: 'the key point', source: 'system' })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('interviewer')
+    expect(messages.value[0].text).toBe('the key point')
+  })
+
+  it('grows the user message in place on cumulative mic committed', () => {
+    const { messages } = useChat()
+    fire('transcription:committed', { text: 'my', source: 'mic' })
+    fire('transcription:committed', { text: 'my answer', source: 'mic' })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('user')
+    expect(messages.value[0].text).toBe('my answer')
+  })
+
+  it('finalizes the growing interviewer message on transcription:done', () => {
+    const { messages } = useChat()
+    fire('transcription:committed', { text: 'the key point', source: 'system' })
+    fire('transcription:done', {
+      text: 'the key point you made is',
+      confidence: 0.9,
+      language: 'en',
+      source: 'system',
+    })
+    expect(messages.value).toHaveLength(1)
+    expect(messages.value[0].role).toBe('interviewer')
+    expect(messages.value[0].text).toBe('the key point you made is')
+  })
+
+  it('does not clobber an assistant answer when finalizing the interviewer phrase', () => {
+    const { messages } = useChat()
+    fire('transcription:committed', { text: 'the key', source: 'system' })
+    fire('llm:started', {})
+    fire('llm:response', { text: 'answer' })
+    fire('transcription:committed', { text: 'the key point', source: 'system' })
+    fire('transcription:done', {
+      text: 'the key point you made is',
+      confidence: 0.9,
+      language: 'en',
+      source: 'system',
+    })
+    expect(messages.value).toHaveLength(2)
+    expect(messages.value[0].role).toBe('interviewer')
+    expect(messages.value[0].text).toBe('the key point you made is')
+    expect(messages.value[1].role).toBe('assistant')
+    expect(messages.value[1].text).toBe('answer')
+  })
+
+  it('starts a fresh message for the next phrase after transcription:done', () => {
+    const { messages } = useChat()
+    fire('transcription:committed', { text: 'first part', source: 'system' })
+    fire('transcription:done', {
+      text: 'first part tail',
+      confidence: 0.9,
+      language: 'en',
+      source: 'system',
+    })
+    fire('transcription:committed', { text: 'second', source: 'system' })
+    expect(messages.value).toHaveLength(2)
+    expect(messages.value[0].text).toBe('first part tail')
+    expect(messages.value[1].role).toBe('interviewer')
+    expect(messages.value[1].text).toBe('second')
+  })
+
+  it('handles the two sources independently', () => {
+    const { messages } = useChat()
+    fire('transcription:committed', { text: 'question', source: 'system' })
+    fire('transcription:committed', { text: 'my answer', source: 'mic' })
+    fire('transcription:committed', { text: 'question is', source: 'system' })
+    expect(messages.value.map(m => [m.role, m.text])).toEqual([
+      ['interviewer', 'question is'],
+      ['user', 'my answer'],
+    ])
+  })
+
   it('ignores transcription:committed without text', () => {
     const { messages } = useChat()
     fire('transcription:committed', { text: '', source: 'system' })
@@ -216,5 +294,30 @@ describe('useChat', () => {
     const { messages } = useChat()
     fire('transcription:done', { text: '', source: 'system' })
     expect(messages.value).toEqual([])
+  })
+
+  it('flips transcribing on stt:processing and stt:idle', () => {
+    const { transcribing } = useChat()
+    expect(transcribing.value).toBe(false)
+    fire('stt:processing', { source: 'system' })
+    expect(transcribing.value).toBe(true)
+    fire('stt:idle', { source: 'system' })
+    expect(transcribing.value).toBe(false)
+  })
+
+  it('keeps transcribing while any source is busy', () => {
+    const { transcribing } = useChat()
+    fire('stt:processing', { source: 'system' })
+    fire('stt:processing', { source: 'mic' })
+    fire('stt:idle', { source: 'system' })
+    expect(transcribing.value).toBe(true)
+    fire('stt:idle', { source: 'mic' })
+    expect(transcribing.value).toBe(false)
+  })
+
+  it('ignores stt status events without source', () => {
+    const { transcribing } = useChat()
+    fire('stt:processing', {})
+    expect(transcribing.value).toBe(false)
   })
 })

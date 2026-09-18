@@ -178,3 +178,83 @@ phrase ended (silence gate), which read to the user as "Listen is broken".
 - **Semantics unchanged otherwise:** `onCommitted` still never triggers the LLM and still emits no
   `transcription:done`; only `onDone` finalizes the phrase (auto-answer + `transcription:done`).
   The final history for a turn remains committed ∪ done — each span exactly once.
+
+**Amendment (2026-09-18, cumulative phrases in the chat/history/LLM):** a continuous turn rendered as
+one live bubble per committed span — the overlay, history, and the LLM prompt showed the same phrase
+chopped into separate mid-sentence messages (e.g. `the key point` / `you made is`), and a revised
+whisper boundary word could appear twice. The user-facing contract is now **one message per spoken
+phrase** that grows as the interviewer speaks:
+
+- **Pipeline accumulates.** `AudioPipeline` keeps a per-pipeline phrase buffer. `onCommitted` appends
+  the incoming span to the buffer and emits `transcription:committed` with the **cumulative** text
+  (the whole phrase so far). The overlay **updates the growing message in place** instead of appending
+  a new row.
+- **History is written once per phrase.** `onCommitted` no longer touches session history. On `onDone`
+  the tail is appended to the buffer and the **complete phrase** is committed: `transcription:done`
+  carries the full text, the mic path persists the full phrase as one `user` message, and the system
+  path passes the full phrase to the LLM as the final `interviewer` message (which is persisted once
+  by `LLM.Generate`, as before). The buffer then resets — the next spoken phrase starts a fresh
+  message.
+- **Boundary overlap guard.** If the finalize tail begins with an exact verbatim repeat of the
+  buffer's end (whisper re-transcribes a boundary word after a revision), only that repeated prefix is
+  trimmed before the tail is appended. Repeats that live entirely inside a single span are preserved,
+  so deliberate emphatic repeats are not touched.
+- **LLM input is the full phrase.** Auto-answer's `LLM.Generate` receives the complete phrase (not the
+  tail), so the question is never truncated to its last fragment.
+
+**Amendment (2026-09-18, auto-answer fires at the completed question):** a rambling interviewer who
+asks a question and keeps talking defeated NFR-01's 2 s target — the answer started only after the
+_phrase_ ended (silence gate). Auto-answer now triggers **mid-phrase** as soon as the phrase's last
+completed sentence is a question:
+
+- **`?`-trigger on `onCommitted`.** For system sound only, when the cumulative phrase's final
+  `.`/`!`/`?` in the trimmed text is `?`, the pipeline persists one `interviewer` message (the phrase
+  so far), cancels any in-flight generation, and starts the answer **immediately** — it does not wait
+  for `onDone`. The mic path never auto-answers (unchanged).
+- **At most one answer per phrase.** A new per-phrase `answered` flag (reset at `onDone`) suppresses
+  re-trggering; the `onDone` fallback answers only when `answered` is false. Consequences: trailing
+  chatter after a `?` does not get a second answer, and a second question inside the same spoken
+  phrase is not answered separately — acceptable for v1, a sentence splitter would be the refinement.
+- **`LLM.AnswerLast` replaces `Generate` in the auto-answer path.** The pipeline persists the question
+  before the call, so `AnswerLast` never appends the question itself; it feeds the engine
+  `history[:len-1]` + the question as the input text (the trailing question is not in the prompt
+  twice). Streaming/cancel/idempotency behaviour is identical to `Generate` — both share one
+  `respond(input, role, appendQuestion bool)` core. Statements still auto-answer at `onDone`
+  (unchanged semantics).
+- **Mid-phrase language is best-effort.** The `?`-trigger uses the language cached from the most
+  recent finalized phrase; the detected language of a phrase is only known at `onDone`.
+
+**Amendment (2026-09-18, exactly-once emission under degenerate timestamps):** the "no duplication"
+guarantee broke on the real device: whisper's VAD time-mapping can **underreport** token `End`
+timestamps (the mirror of the documented overshoot next to it — both are `orig_end` snapping to the
+VAD chunk grid). A commit trims the window at the last committed word's `End`; an underreport
+collapses the trim to a no-op, so the already-committed audio stays at the window front and the whole
+phrase accumulated verbatim repeats (re-commits, and `onDone` re-emitting the full window) — reported
+as the same sentence appearing two or three times inside one cumulative interviewer message.
+
+- **Minimal window advance.** The commit trim point is floored at `minWord` per committed word, so the
+  window always advances past committed audio even when every token `End` collapses to ~0. Calibrated
+  to a realistic per-word extent at the model rate (300 ms × 16 kHz): large enough to make a real
+  collapse land below the floor and latch `laggy`, small enough never to cut ahead of fast genuine
+  speech.
+- **Replay strip, gated on a sticky `laggy` flag.** A phrase whose committed block's `End` fell below
+  the floor is flagged; thereafter each emission point (`onCommitted` and `onDone`) strips the longest
+  prefix that re-transcribes words already handed out (`emitted`), matched **case-insensitively**
+  (whisper re-capitalizes a boundary word at segment starts — committed `и`, re-emitted `И`).
+  Healthy-timestamp phrases never run the strip, so genuinely emphatic repeats are preserved (guarded
+  by test).
+- **Phrase-end window reset.** On a `laggy` finalize the leftover window is dropped outright — its
+  content was emitted (committed ∪ done) and the timestamps cannot give a trustworthy boundary, so
+  keeping it would let the next phrase re-transcribe and re-emit it again.
+- **Pipeline boundary trim is case-insensitive.** `trimOverlap` (the boundary-repeat guard in
+  `onDone`) compares words with `EqualFold`: a collapsed-but-non-laggy phrase re-emits the last
+  committed word capitalized ("…фракций, и" + tail "И у их речей…"), which would otherwise read the
+  same word twice inside one message.
+- **Superset-replace guard.** `joinPhrase` replaces the accumulated buffer when an incoming span
+  contains the whole buffer as a contiguous case-insensitive subsequence and is strictly longer — a
+  cleaner full re-transcription supersedes polluted fragments instead of stacking on top of them.
+- **Verification.** `INTERAGENT_STT_DEBUG_COMMITS=1` logs every Process/commit/finalize decision to
+  `/tmp/interagent-stt-commits.log` (alongside `INTERAGENT_STT_DEBUG_RMS`) for on-device confirmation
+  of exactly-once emission. Reproduced headlessly with a file-replay harness
+  (`TestReplaySystemTranscription`, `INTERAGENT_REPLAY_FILE` of float32 mono 48 kHz PCM) against the
+  real clip.
