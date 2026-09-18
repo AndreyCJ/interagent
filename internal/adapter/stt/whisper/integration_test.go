@@ -81,7 +81,7 @@ func TestStream_RealModel_Integration(t *testing.T) {
 			}{text, confidence, language}:
 			default:
 			}
-		})
+		}, nil)
 	}()
 
 	// Feed the wav in 0.1s chunks (1600 samples each).
@@ -201,7 +201,7 @@ func TestStream_RealModel_LongForm_CommitsBeforeDone(t *testing.T) {
 	go func() {
 		streamErr <- w.Stream(16000, nil,
 			func(text string) { record("committed", text) },
-			func(text string, _ float64, _ string) { record("done", text) })
+			func(text string, _ float64, _ string) { record("done", text) }, nil)
 	}()
 
 	frame := float32ToBytes(samples)

@@ -13,6 +13,13 @@ export function useChat() {
   const messages = ref<ChatMessage[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const transcribing = ref(false)
+  const activeTranscripts = new Map<string, number>()
+  const activeSources = new Set<string>()
+
+  function transcriptRole(source: string): string {
+    return source === 'mic' ? 'user' : 'interviewer'
+  }
 
   function updateStreaming(text: string, finalize: boolean): void {
     const last = messages.value[messages.value.length - 1]
@@ -27,6 +34,7 @@ export function useChat() {
   }
 
   async function load(): Promise<void> {
+    activeTranscripts.clear()
     try {
       const session = await GetSession()
       const history =
@@ -93,23 +101,39 @@ export function useChat() {
 
   onEvent('transcription:committed', payload => {
     const p = payload as { text?: string; source?: string }
-    if (!p?.text) return
-    if (p.source === 'mic') {
-      messages.value.push({ role: 'user', text: p.text })
-    } else if (p.source === 'system') {
-      messages.value.push({ role: 'interviewer', text: p.text })
+    if (!p?.text || !p.source) return
+    const index = activeTranscripts.get(p.source)
+    if (index !== undefined) {
+      messages.value[index].text = p.text
+      return
     }
+    messages.value.push({ role: transcriptRole(p.source), text: p.text })
+    activeTranscripts.set(p.source, messages.value.length - 1)
   })
 
   onEvent('transcription:done', payload => {
     const p = payload as { text?: string; source?: string }
-    if (!p?.text) return
-    if (p.source === 'mic') {
-      messages.value.push({ role: 'user', text: p.text })
-    } else if (p.source === 'system') {
-      messages.value.push({ role: 'interviewer', text: p.text })
+    if (!p?.text || !p.source) return
+    const index = activeTranscripts.get(p.source)
+    if (index !== undefined) {
+      messages.value[index].text = p.text
+      activeTranscripts.delete(p.source)
+      return
     }
+    messages.value.push({ role: transcriptRole(p.source), text: p.text })
   })
 
-  return { messages, loading, error, load, send }
+  onEvent('stt:processing', payload => {
+    const p = payload as { source?: string }
+    if (p?.source) activeSources.add(p.source)
+    transcribing.value = activeSources.size > 0
+  })
+
+  onEvent('stt:idle', payload => {
+    const p = payload as { source?: string }
+    if (p?.source) activeSources.delete(p.source)
+    transcribing.value = activeSources.size > 0
+  })
+
+  return { messages, loading, error, transcribing, load, send }
 }

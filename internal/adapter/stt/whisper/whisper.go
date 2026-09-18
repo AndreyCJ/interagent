@@ -133,7 +133,7 @@ func (w *Whisper) Feed(chunk []byte) error {
 	}
 }
 
-func (w *Whisper) Stream(sampleRate int, onPartial func(string), onCommitted func(string), onDone func(text string, confidence float64, language string)) error {
+func (w *Whisper) Stream(sampleRate int, onPartial func(string), onCommitted func(string), onDone func(text string, confidence float64, language string), onStatus func(bool)) error {
 	if err := w.beginStream(); err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func (w *Whisper) Stream(sampleRate int, onPartial func(string), onCommitted fun
 		return err
 	}
 
-	st := newStreamState(ctx, sampleRate, onPartial, onCommitted, onDone)
+	st := newStreamState(ctx, sampleRate, onPartial, onCommitted, onDone, onStatus)
 	for {
 		select {
 		case <-w.close:
